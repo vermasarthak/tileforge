@@ -20,6 +20,10 @@ dev = [
 [project.scripts]
 tileforge = "tileforge.cli:main"
 
+[tool.setuptools.packages.find]
+where = ["."]
+include = ["tileforge*"]
+
 [tool.pytest.ini_options]
 testpaths = ["tests"]
 python_files = ["test_*.py"]
