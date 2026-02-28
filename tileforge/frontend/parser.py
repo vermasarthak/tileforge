@@ -238,6 +238,26 @@ class Parser:
                 column=col,
             )
 
+        elif isinstance(expr, ast.BoolOp):
+            bool_op_map = {
+                ast.And: "and",
+                ast.Or: "or",
+            }
+            op_type = type(expr.op)
+            if op_type not in bool_op_map:
+                raise UnsupportedSyntaxError(
+                    f"Unsupported boolean operator '{op_type.__name__}'",
+                    filename=self.filename,
+                    line=line,
+                    column=col,
+                )
+            # Fold chained bool ops left to right
+            res_expr = self._parse_expr(expr.values[0])
+            for val in expr.values[1:]:
+                rhs = self._parse_expr(val)
+                res_expr = BinaryExpr(op=bool_op_map[op_type], lhs=res_expr, rhs=rhs, line=line, column=col)
+            return res_expr
+
         else:
             raise UnsupportedSyntaxError(
                 f"Unsupported Python expression '{type(expr).__name__}'",

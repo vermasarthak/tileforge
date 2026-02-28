@@ -81,11 +81,11 @@ class ASTToLowering:
             lhs_val = self._lower_expr(expr.lhs, builder, symbol_env)
             rhs_val = self._lower_expr(expr.rhs, builder, symbol_env)
             
-            if expr.op == "+":
+            if expr.op in ("+", "or"):
                 return builder.create_add(lhs_val, rhs_val)
             elif expr.op == "-":
                 return builder.create_sub(lhs_val, rhs_val)
-            elif expr.op == "*":
+            elif expr.op in ("*", "and"):
                 return builder.create_mul(lhs_val, rhs_val)
             elif expr.op in ("/", "//"):
                 return builder.create_div(lhs_val, rhs_val)
