@@ -1,4 +1,4 @@
-"""Deterministic textual IR printer for TileForge IR."""
+"""Deterministic textual IR printer for TileForge IR with block arguments and CFG branches."""
 
 from __future__ import annotations
 from tileforge.ir.module import Module
@@ -34,7 +34,10 @@ class IRPrinter:
 
     def print_block(self, block: Block) -> str:
         lines = []
-        if block.name != "entry":
+        if block.args:
+            block_args_str = ", ".join(f"{a.name}: {a.type}" for a in block.args)
+            lines.append(f"^{block.name}({block_args_str}):")
+        else:
             lines.append(f"^{block.name}:")
         
         for op in block.operations:
@@ -70,6 +73,12 @@ class IRPrinter:
             rhs = op.operands[1].name
             return f"{res_str} = {op_name} {lhs}, {rhs}{res_type_str}"
 
+        elif op.op_type in {OpType.LOGICAL_AND, OpType.LOGICAL_OR}:
+            op_name = op.op_type
+            lhs = op.operands[0].name
+            rhs = op.operands[1].name
+            return f"{res_str} = {op_name} {lhs}, {rhs}{res_type_str}"
+
         elif op.op_type == OpType.LOAD:
             ptr = op.operands[0].name
             offs = op.operands[1].name
@@ -88,6 +97,30 @@ class IRPrinter:
             t_val = op.operands[1].name
             f_val = op.operands[2].name
             return f"{res_str} = tf.where {cond}, {t_val}, {f_val}{res_type_str}"
+
+        elif op.op_type == OpType.BR:
+            target = op.successors[0].name
+            args_str = ", ".join(o.name for o in op.operands)
+            arg_part = f"({args_str})" if args_str else ""
+            return f"tf.br ^{target}{arg_part}"
+
+        elif op.op_type == OpType.COND_BR:
+            cond = op.operands[0].name
+            t_block = op.successors[0].name
+            e_block = op.successors[1].name
+            t_count = op.attributes.get("then_arg_count", 0)
+            e_count = op.attributes.get("else_arg_count", 0)
+            
+            t_opnds = op.operands[1:1 + t_count]
+            e_opnds = op.operands[1 + t_count:1 + t_count + e_count]
+            
+            t_args_str = f"({', '.join(o.name for o in t_opnds)})" if t_opnds else ""
+            e_args_str = f"({', '.join(o.name for o in e_opnds)})" if e_opnds else ""
+            return f"tf.cond_br {cond}, ^{t_block}{t_args_str}, ^{e_block}{e_args_str}"
+
+        elif op.op_type in {OpType.REDUCE_SUM, OpType.REDUCE_MAX, OpType.DOT}:
+            opnds = ", ".join(o.name for o in op.operands)
+            return f"{res_str} = {op.op_type} {opnds}{res_type_str}"
 
         elif op.op_type == OpType.RETURN:
             if op.operands:

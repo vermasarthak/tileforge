@@ -75,6 +75,21 @@ class Return(Statement):
 
 
 @dataclass
+class IfStatement(Statement):
+    condition: Expr = field(default_factory=Expr)
+    then_body: List[Statement] = field(default_factory=list)
+    else_body: List[Statement] = field(default_factory=list)
+
+
+@dataclass
+class ForRangeStatement(Statement):
+    var_name: str = ""
+    start: Expr = field(default_factory=Expr)
+    end: Expr = field(default_factory=Expr)
+    body: List[Statement] = field(default_factory=list)
+
+
+@dataclass
 class KernelFunctionNode(ASTNode):
     name: str = ""
     args: List[Argument] = field(default_factory=list)

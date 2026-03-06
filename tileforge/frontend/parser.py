@@ -11,6 +11,8 @@ from tileforge.frontend.ast_nodes import (
     Statement,
     Assignment,
     Return,
+    IfStatement,
+    ForRangeStatement,
     Expr,
     BinaryExpr,
     CompareExpr,
@@ -135,6 +137,76 @@ class Parser:
                 column=stmt.col_offset,
             )
 
+        elif isinstance(stmt, ast.If):
+            cond_expr = self._parse_expr(stmt.test)
+            then_stmts = [self._parse_statement(s) for s in stmt.body]
+            else_stmts = [self._parse_statement(s) for s in stmt.orelse] if stmt.orelse else []
+            return IfStatement(
+                condition=cond_expr,
+                then_body=then_stmts,
+                else_body=else_stmts,
+                line=stmt.lineno,
+                column=stmt.col_offset,
+            )
+
+        elif isinstance(stmt, ast.For):
+            if not isinstance(stmt.target, ast.Name):
+                raise UnsupportedSyntaxError(
+                    "For loop target must be a single variable name",
+                    filename=self.filename,
+                    line=stmt.lineno,
+                    column=stmt.col_offset,
+                )
+            var_name = stmt.target.id
+            
+            # Check loop iterable call: tf.range(start, end) or range(start, end)
+            if not isinstance(stmt.iter, ast.Call):
+                raise UnsupportedSyntaxError(
+                    "Unsupported loop iterator: For loop iterable must be tf.range(start, end) or range(start, end)",
+                    filename=self.filename,
+                    line=stmt.lineno,
+                    column=stmt.col_offset,
+                )
+            
+            call_node = stmt.iter
+            func_name = ""
+            if isinstance(call_node.func, ast.Attribute) and isinstance(call_node.func.value, ast.Name):
+                func_name = f"{call_node.func.value.id}.{call_node.func.attr}"
+            elif isinstance(call_node.func, ast.Name):
+                func_name = call_node.func.id
+
+            if func_name not in {"range", "tf.range", "tileforge.range"}:
+                raise UnsupportedSyntaxError(
+                    f"Unsupported loop iterator '{func_name}'. Only tf.range(start, end) is allowed.",
+                    filename=self.filename,
+                    line=stmt.lineno,
+                    column=stmt.col_offset,
+                )
+
+            if len(call_node.args) == 1:
+                start_expr = Literal(value=0, line=stmt.lineno, column=stmt.col_offset)
+                end_expr = self._parse_expr(call_node.args[0])
+            elif len(call_node.args) == 2:
+                start_expr = self._parse_expr(call_node.args[0])
+                end_expr = self._parse_expr(call_node.args[1])
+            else:
+                raise UnsupportedSyntaxError(
+                    "range requires 1 or 2 arguments",
+                    filename=self.filename,
+                    line=stmt.lineno,
+                    column=stmt.col_offset,
+                )
+
+            body_stmts = [self._parse_statement(s) for s in stmt.body]
+            return ForRangeStatement(
+                var_name=var_name,
+                start=start_expr,
+                end=end_expr,
+                body=body_stmts,
+                line=stmt.lineno,
+                column=stmt.col_offset,
+            )
+
         else:
             raise UnsupportedSyntaxError(
                 f"Unsupported Python statement '{type(stmt).__name__}'. "
@@ -149,7 +221,7 @@ class Parser:
         col = getattr(expr, "col_offset", 0)
 
         if isinstance(expr, ast.Constant):
-            if not isinstance(expr.value, (int, float, bool)):
+            if not isinstance(expr.value, (int, float, bool, str)):
                 raise UnsupportedSyntaxError(
                     f"Unsupported literal type: {type(expr.value).__name__}",
                     filename=self.filename,
@@ -180,6 +252,21 @@ class Parser:
             lhs = self._parse_expr(expr.left)
             rhs = self._parse_expr(expr.right)
             return BinaryExpr(op=op_map[op_type], lhs=lhs, rhs=rhs, line=line, column=col)
+        elif isinstance(expr, ast.UnaryOp):
+            if isinstance(expr.op, ast.USub):
+                operand = self._parse_expr(expr.operand)
+                if isinstance(operand, Literal) and isinstance(operand.value, (int, float)):
+                    return Literal(value=-operand.value, line=line, column=col)
+                return BinaryExpr(op="*", lhs=Literal(value=-1, line=line, column=col), rhs=operand, line=line, column=col)
+            elif isinstance(expr.op, ast.UAdd):
+                return self._parse_expr(expr.operand)
+            else:
+                raise UnsupportedSyntaxError(
+                    f"Unsupported unary operator '{type(expr.op).__name__}'",
+                    filename=self.filename,
+                    line=line,
+                    column=col,
+                )
 
         elif isinstance(expr, ast.Compare):
             if len(expr.ops) != 1 or len(expr.comparators) != 1:
@@ -257,6 +344,14 @@ class Parser:
                 rhs = self._parse_expr(val)
                 res_expr = BinaryExpr(op=bool_op_map[op_type], lhs=res_expr, rhs=rhs, line=line, column=col)
             return res_expr
+
+        elif isinstance(expr, ast.Tuple):
+            elt_vals = [self._parse_expr(elt) for elt in expr.elts]
+            if all(isinstance(e, Literal) for e in elt_vals):
+                t_val = tuple(e.value for e in elt_vals)
+                return Literal(value=t_val, line=line, column=col)
+            else:
+                return Call(func_name="tuple", args=elt_vals, line=line, column=col)
 
         else:
             raise UnsupportedSyntaxError(

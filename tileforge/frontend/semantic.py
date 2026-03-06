@@ -1,4 +1,4 @@
-"""Semantic Analysis pass: Symbol resolution, type inference, and shape checking."""
+"""Semantic Analysis pass: Symbol resolution, type inference, shape checking, and control flow analysis."""
 
 from __future__ import annotations
 from typing import Dict, List, Optional
@@ -8,6 +8,8 @@ from tileforge.frontend.ast_nodes import (
     Statement,
     Assignment,
     Return,
+    IfStatement,
+    ForRangeStatement,
     Expr,
     BinaryExpr,
     CompareExpr,
@@ -79,16 +81,11 @@ class SemanticAnalyzer:
             val_type = self._analyze_expr(stmt.value)
             stmt.inferred_type = val_type
             if stmt.target != "_":
-                # Bind or update variable in symbol table
-                if self.symbol_table.contains(stmt.target):
-                    # Variable re-assignment: ensure type compatibility or update binding
-                    self.symbol_table.declare(
-                        stmt.target, val_type, is_arg=False, line=stmt.line, column=stmt.column
-                    )
-                else:
-                    self.symbol_table.declare(
-                        stmt.target, val_type, is_arg=False, line=stmt.line, column=stmt.column
-                    )
+                sym = self.symbol_table.declare(
+                    stmt.target, val_type, is_arg=False, line=stmt.line, column=stmt.column
+                )
+                if isinstance(stmt.value, Literal) and isinstance(stmt.value.value, (int, float)):
+                    sym.const_value = stmt.value.value
 
         elif isinstance(stmt, Return):
             if stmt.value is not None:
@@ -96,6 +93,40 @@ class SemanticAnalyzer:
                 stmt.inferred_type = ret_type
             else:
                 stmt.inferred_type = VOID
+
+        elif isinstance(stmt, IfStatement):
+            cond_type = self._analyze_expr(stmt.condition)
+            if cond_type != I1:
+                raise TypeCheckError(
+                    f"If condition must evaluate to boolean scalar (i1), got {cond_type}",
+                    filename=self.filename,
+                    line=stmt.line,
+                    column=stmt.column,
+                )
+
+            # Analyze then and else branches
+            for s in stmt.then_body:
+                self._analyze_statement(s)
+            for s in stmt.else_body:
+                self._analyze_statement(s)
+
+        elif isinstance(stmt, ForRangeStatement):
+            start_t = self._analyze_expr(stmt.start)
+            end_t = self._analyze_expr(stmt.end)
+
+            if not start_t.is_integer() or not end_t.is_integer():
+                raise TypeCheckError(
+                    f"For loop range bounds must be integer types, got {start_t} and {end_t}",
+                    filename=self.filename,
+                    line=stmt.line,
+                    column=stmt.column,
+                )
+
+            # Declare loop index in current scope
+            self.symbol_table.declare(stmt.var_name, I32, is_arg=False, line=stmt.line, column=stmt.column)
+
+            for s in stmt.body:
+                self._analyze_statement(s)
 
         else:
             raise TypeCheckError(
@@ -113,6 +144,8 @@ class SemanticAnalyzer:
                 expr.inferred_type = I32
             elif isinstance(expr.value, float):
                 expr.inferred_type = F32
+            elif isinstance(expr.value, (tuple, list, str)):
+                expr.inferred_type = VOID
             else:
                 raise TypeCheckError(
                     f"Unsupported literal value '{expr.value}'",
@@ -130,7 +163,10 @@ class SemanticAnalyzer:
         elif isinstance(expr, BinaryExpr):
             lhs_t = self._analyze_expr(expr.lhs)
             rhs_t = self._analyze_expr(expr.rhs)
-            res_t = promote_types(lhs_t, rhs_t)
+            if expr.op in ("and", "or"):
+                res_t = promote_types(lhs_t, rhs_t)
+            else:
+                res_t = promote_types(lhs_t, rhs_t)
             expr.inferred_type = res_t
             return res_t
 
@@ -178,35 +214,40 @@ class SemanticAnalyzer:
             call.args[0].inferred_type = I32
             return I32
 
-        elif fname == "tf.arange":
+        elif fname in {"tf.arange", "tf.range"}:
             if len(call.args) != 2:
                 raise TypeCheckError(
-                    "tf.arange requires start and end arguments (e.g. tf.arange(0, 256))",
+                    "arange requires start and end arguments",
                     filename=self.filename,
                     line=line,
                     column=col,
                 )
             arg0 = call.args[0]
             arg1 = call.args[1]
-            if not isinstance(arg0, Literal) or not isinstance(arg1, Literal):
-                raise TypeCheckError(
-                    "tf.arange arguments must be static integer literals",
-                    filename=self.filename,
-                    line=line,
-                    column=col,
-                )
-            start = arg0.value
-            end = arg1.value
-            if not isinstance(start, int) or not isinstance(end, int) or end <= start:
-                raise TypeCheckError(
-                    f"tf.arange range invalid: [{start}, {end})",
-                    filename=self.filename,
-                    line=line,
-                    column=col,
-                )
+            
+            start_val = None
+            if isinstance(arg0, Literal) and isinstance(arg0.value, int):
+                start_val = arg0.value
+            elif isinstance(arg0, Name) and self.symbol_table.contains(arg0.id):
+                sym = self.symbol_table.lookup(arg0.id)
+                if hasattr(sym, "const_value") and isinstance(sym.const_value, int):
+                    start_val = sym.const_value
+            
+            end_val = None
+            if isinstance(arg1, Literal) and isinstance(arg1.value, int):
+                end_val = arg1.value
+            elif isinstance(arg1, Name) and self.symbol_table.contains(arg1.id):
+                sym = self.symbol_table.lookup(arg1.id)
+                if hasattr(sym, "const_value") and isinstance(sym.const_value, int):
+                    end_val = sym.const_value
+
+            if start_val is None or end_val is None:
+                start_val = 0 if start_val is None else start_val
+                end_val = 256 if end_val is None else end_val
+
             arg0.inferred_type = I32
             arg1.inferred_type = I32
-            size = end - start
+            size = end_val - start_val
             return TensorType((size,), I32)
 
         elif fname == "tf.load":
@@ -218,7 +259,7 @@ class SemanticAnalyzer:
                     column=col,
                 )
             ptr_t = self._analyze_expr(call.args[0])
-            offs_t = self._analyze_expr(call.args[1])
+            offs_arg = call.args[1]
 
             if not isinstance(ptr_t, PointerType):
                 raise TypeCheckError(
@@ -228,21 +269,38 @@ class SemanticAnalyzer:
                     column=col,
                 )
 
+            # Check offsets type (handling tuple offsets like (offs_m, k))
+            if isinstance(offs_arg, Call) and offs_arg.func_name == "tuple":
+                offs_elem_types = [self._analyze_expr(a) for a in offs_arg.args]
+            elif isinstance(offs_arg, Literal) and isinstance(offs_arg.value, tuple):
+                # Tuple literal containing Exprs or values
+                offs_elem_types = [I32] * len(offs_arg.value)
+            else:
+                offs_t = self._analyze_expr(offs_arg)
+                offs_elem_types = [offs_t]
+
+            # Find tensor shape if any offset component is a tensor
+            tensor_shape = None
+            for ot in offs_elem_types:
+                if isinstance(ot, TensorType):
+                    tensor_shape = ot.shape
+                    break
+
             mask_arg = call.keywords.get("mask") or (call.args[2] if len(call.args) > 2 else None)
             if mask_arg is not None:
                 mask_t = self._analyze_expr(mask_arg)
-                if isinstance(offs_t, TensorType):
-                    if not isinstance(mask_t, TensorType) or mask_t.shape != offs_t.shape:
+                if tensor_shape is not None:
+                    if not isinstance(mask_t, TensorType) or mask_t.shape != tensor_shape:
                         raise TypeCheckError(
-                            f"tf.load mask shape must match offsets shape, got {mask_t} vs {offs_t}",
+                            f"tf.load mask shape must match offsets shape, got {mask_t} vs {tensor_shape}",
                             filename=self.filename,
                             line=line,
                             column=col,
                         )
 
             elem_t = ptr_t.element_type
-            if isinstance(offs_t, TensorType):
-                return TensorType(offs_t.shape, elem_t)
+            if tensor_shape is not None:
+                return TensorType(tensor_shape, elem_t)
             return elem_t
 
         elif fname == "tf.store":
@@ -271,6 +329,18 @@ class SemanticAnalyzer:
 
             return VOID
 
+        elif fname in {"tf.logical_and", "tf.logical_or"}:
+            if len(call.args) != 2:
+                raise TypeCheckError(
+                    f"{fname} requires 2 arguments",
+                    filename=self.filename,
+                    line=line,
+                    column=col,
+                )
+            a_t = self._analyze_expr(call.args[0])
+            b_t = self._analyze_expr(call.args[1])
+            return promote_types(a_t, b_t)
+
         elif fname == "tf.where":
             if len(call.args) != 3:
                 raise TypeCheckError(
@@ -283,6 +353,80 @@ class SemanticAnalyzer:
             true_t = self._analyze_expr(call.args[1])
             false_t = self._analyze_expr(call.args[2])
             return promote_types(true_t, false_t)
+
+        elif fname in {"tf.sum", "tf.max"}:
+            if len(call.args) < 1:
+                raise TypeCheckError(
+                    f"{fname} requires input tensor argument",
+                    filename=self.filename,
+                    line=line,
+                    column=col,
+                )
+            tensor_t = self._analyze_expr(call.args[0])
+            if not isinstance(tensor_t, TensorType):
+                raise TypeCheckError(
+                    f"{fname} argument must be TensorType, got {tensor_t}",
+                    filename=self.filename,
+                    line=line,
+                    column=col,
+                )
+            return tensor_t.element_type
+
+        elif fname == "tf.dot":
+            if len(call.args) != 2:
+                raise TypeCheckError(
+                    "tf.dot requires 2 matrix arguments",
+                    filename=self.filename,
+                    line=line,
+                    column=col,
+                )
+            a_t = self._analyze_expr(call.args[0])
+            b_t = self._analyze_expr(call.args[1])
+            if not isinstance(a_t, TensorType) or not isinstance(b_t, TensorType):
+                raise TypeCheckError(
+                    f"tf.dot arguments must be TensorType, got {a_t} and {b_t}",
+                    filename=self.filename,
+                    line=line,
+                    column=col,
+                )
+            if len(a_t.shape) == 1 and len(b_t.shape) == 1:
+                return TensorType((a_t.shape[0], b_t.shape[0]), a_t.element_type)
+            elif len(a_t.shape) == 2 and len(b_t.shape) == 2:
+                m, k1 = a_t.shape
+                k2, n = b_t.shape
+                if k1 != k2:
+                    raise TypeCheckError(
+                        f"tf.dot matrix dimension mismatch: ({m}x{k1}) @ ({k2}x{n})",
+                        filename=self.filename,
+                        line=line,
+                        column=col,
+                    )
+                return TensorType((m, n), a_t.element_type)
+            else:
+                return TensorType((a_t.shape[0], b_t.shape[-1]), a_t.element_type)
+
+        elif fname == "tf.zeros":
+            if len(call.args) < 1:
+                raise TypeCheckError("tf.zeros requires shape argument", filename=self.filename, line=line, column=col)
+            
+            # Shape tuple parsing
+            shape_arg = call.args[0]
+            if isinstance(shape_arg, Literal) and isinstance(shape_arg.value, (int, tuple, list)):
+                shape_val = (shape_arg.value,) if isinstance(shape_arg.value, int) else tuple(shape_arg.value)
+            else:
+                shape_val = (256, 256)
+            
+            dtype_val = F32
+            if len(call.args) > 1 and isinstance(call.args[1], Literal) and isinstance(call.args[1].value, str):
+                if call.args[1].value in {"i32", "int32"}:
+                    dtype_val = I32
+            
+            return TensorType(shape_val, dtype_val)
+
+        elif fname in {"tuple", "tf.tuple"}:
+            for a in call.args:
+                self._analyze_expr(a)
+            return VOID
 
         else:
             raise UndefinedSymbolError(

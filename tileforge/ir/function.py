@@ -33,6 +33,13 @@ class Function:
     def entry_block(self) -> Block:
         return self.blocks[0]
 
+    def create_block(self, name: Optional[str] = None, args: Optional[List[Value]] = None) -> Block:
+        if name is None:
+            name = f"bb{len(self.blocks)}"
+        block = Block(name=name, parent_function=self, args=args)
+        self.blocks.append(block)
+        return block
+
     def __repr__(self) -> str:
         args_str = ", ".join(f"{a.name}: {a.type}" for a in self.args)
         return f"Function({self.name}({args_str}) -> {self.return_type})"

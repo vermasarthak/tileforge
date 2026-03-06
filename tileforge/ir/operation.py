@@ -1,4 +1,4 @@
-"""Operation representation for TileForge SSA IR."""
+"""Operation representation and traits for TileForge SSA IR."""
 
 from __future__ import annotations
 from typing import List, Dict, Any, Optional, TYPE_CHECKING
@@ -21,9 +21,18 @@ class OpType:
     STORE = "tf.store"
     WHERE = "tf.where"
     RETURN = "tf.return"
+    BR = "tf.br"
+    COND_BR = "tf.cond_br"
+    LOGICAL_AND = "tf.logical_and"
+    LOGICAL_OR = "tf.logical_or"
+    REDUCE_SUM = "tf.reduce_sum"
+    REDUCE_MAX = "tf.reduce_max"
+    DOT = "tf.dot"
+    RESHAPE = "tf.reshape"
+    EXPAND_DIMS = "tf.expand_dims"
+    BROADCAST_TO = "tf.broadcast_to"
 
 
-# Operations without side-effects (candidates for CSE/DCE)
 PURE_OPERATIONS = {
     OpType.CONSTANT,
     OpType.ADD,
@@ -34,6 +43,20 @@ PURE_OPERATIONS = {
     OpType.PROGRAM_ID,
     OpType.ARANGE,
     OpType.WHERE,
+    OpType.LOGICAL_AND,
+    OpType.LOGICAL_OR,
+    OpType.REDUCE_SUM,
+    OpType.REDUCE_MAX,
+    OpType.DOT,
+    OpType.RESHAPE,
+    OpType.EXPAND_DIMS,
+    OpType.BROADCAST_TO,
+}
+
+TERMINATOR_OPERATIONS = {
+    OpType.RETURN,
+    OpType.BR,
+    OpType.COND_BR,
 }
 
 
@@ -46,12 +69,14 @@ class Operation:
         results: Optional[List[Value]] = None,
         attributes: Optional[Dict[str, Any]] = None,
         parent_block: Optional[Block] = None,
+        successors: Optional[List[Block]] = None,
     ):
         self.op_type: str = op_type
         self.operands: List[Value] = operands if operands is not None else []
         self.results: List[Value] = results if results is not None else []
         self.attributes: Dict[str, Any] = attributes if attributes is not None else {}
         self.parent_block: Optional[Block] = parent_block
+        self.successors: List[Block] = successors if successors is not None else []
 
         # Set defining_op on results
         for res in self.results:
@@ -64,8 +89,14 @@ class Operation:
     def is_pure(self) -> bool:
         return self.op_type in PURE_OPERATIONS
 
+    def reads_memory(self) -> bool:
+        return self.op_type == OpType.LOAD
+
+    def writes_memory(self) -> bool:
+        return self.op_type == OpType.STORE
+
     def is_terminator(self) -> bool:
-        return self.op_type == OpType.RETURN
+        return self.op_type in TERMINATOR_OPERATIONS
 
     def erase(self) -> None:
         """Remove this operation from its parent block and unregister uses."""
