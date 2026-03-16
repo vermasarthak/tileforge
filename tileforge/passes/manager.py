@@ -34,6 +34,12 @@ class PassManager:
             if changed:
                 modified_any = True
                 if self.verify_each:
-                    self.verifier.verify_module(module)
+                    try:
+                        self.verifier.verify_module(module)
+                    except Exception as e:
+                        from tileforge.ir.printer import IRPrinter
+                        print(f"[PassManager Error after {pass_.__class__.__name__}]: {e}")
+                        print(IRPrinter().print_module(module))
+                        raise e
 
         return modified_any

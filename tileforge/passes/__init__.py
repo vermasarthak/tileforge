@@ -5,6 +5,7 @@ from tileforge.passes.constant_fold import ConstantFoldPass
 from tileforge.passes.algebraic import AlgebraicSimplifyPass
 from tileforge.passes.dce import DeadCodeEliminationPass
 from tileforge.passes.cse import CSEPass
+from tileforge.passes.simplify_cfg import SimplifyCFGPass
 
 __all__ = [
     "Pass",
@@ -13,4 +14,5 @@ __all__ = [
     "AlgebraicSimplifyPass",
     "DeadCodeEliminationPass",
     "CSEPass",
+    "SimplifyCFGPass",
 ]

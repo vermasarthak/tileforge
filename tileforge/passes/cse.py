@@ -31,8 +31,9 @@ class CSEPass(Pass):
                     i += 1
         return modified
 
-    def _make_op_key(self, op: Operation) -> Tuple[str, Tuple[str, ...], Tuple[Tuple[str, Any], ...]]:
+    def _make_op_key(self, op: Operation) -> Tuple[str, Tuple[str, ...], Tuple[Tuple[str, Any], ...], Tuple[str, ...]]:
         opnd_names = tuple(o.name for o in op.operands)
+        res_types = tuple(str(r.type) for r in op.results)
         # Sort attributes for canonical dict equality key
         attr_pairs = tuple(sorted((k, repr(v)) for k, v in op.attributes.items()))
-        return (op.op_type, opnd_names, attr_pairs)
+        return (op.op_type, opnd_names, attr_pairs, res_types)

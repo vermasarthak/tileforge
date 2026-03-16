@@ -11,11 +11,13 @@ from tileforge.ir.types import Type
 from tileforge.ir.module import Module
 from tileforge.ir.function import Function
 from tileforge.ir.printer import IRPrinter
+from tileforge.ir.dot_exporter import export_cfg_dot
 from tileforge.passes.manager import PassManager
 from tileforge.passes.constant_fold import ConstantFoldPass
 from tileforge.passes.algebraic import AlgebraicSimplifyPass
 from tileforge.passes.dce import DeadCodeEliminationPass
 from tileforge.passes.cse import CSEPass
+from tileforge.passes.simplify_cfg import SimplifyCFGPass
 from tileforge.runtime.interpreter import CPUInterpreter
 from tileforge.language.decorators import KernelFunction
 
@@ -29,6 +31,14 @@ class CompilationResult:
     ir_before_optimization: str
     ir_after_optimization: str
     interpreter: CPUInterpreter
+
+    @property
+    def cfg(self) -> List[str]:
+        return [b.name for b in self.function.blocks]
+
+    @property
+    def dot(self) -> str:
+        return export_cfg_dot(self.function)
 
     def launch(self, grid: Tuple[int, ...], args: List[Any]) -> None:
         """Launches kernel execution on CPU reference interpreter."""
@@ -59,14 +69,18 @@ class Compiler:
         lowering = ASTToLowering()
         func = lowering.lower_kernel(kernel_ast, arg_types)
         ir_before = self.printer.print_module(lowering.module)
+        # print("--- DEBUG IR BEFORE PASSES ---")
+        # print(ir_before)
 
         # 4. Optimization Passes
         if self.optimize:
             pm = PassManager([
+                SimplifyCFGPass(),
                 ConstantFoldPass(),
                 AlgebraicSimplifyPass(),
                 CSEPass(),
                 DeadCodeEliminationPass(),
+                SimplifyCFGPass(),
             ], verify_each=True)
             pm.run(lowering.module)
 

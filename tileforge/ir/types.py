@@ -136,6 +136,9 @@ def promote_types(lhs: Type, rhs: Type) -> Type:
         elem_type = promote_scalar_types(lhs, rhs.element_type)
         return TensorType(rhs.shape, elem_type)
     
+    if lhs == rhs:
+        return lhs
+
     if isinstance(lhs, PrimitiveType) and isinstance(rhs, PrimitiveType):
         return promote_scalar_types(lhs, rhs)
 

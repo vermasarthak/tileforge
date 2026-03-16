@@ -1,6 +1,6 @@
 # TileForge
 
-TileForge is an experimental tensor-kernel compiler built from scratch to explore blocked programming models, SSA IR, compiler optimization, and GPU code generation.
+TileForge is an experimental blocked tensor compiler with a Python frontend, typed SSA IR, CFG/dominance analysis, optimization passes, reductions, tiled matrix operations, and a CPU reference backend.
 
 > [!NOTE]
 > **Current backend:** CPU reference interpreter (NumPy)  
@@ -8,13 +8,13 @@ TileForge is an experimental tensor-kernel compiler built from scratch to explor
 
 ## Overview
 
-TileForge translates Python-like tensor kernel definitions into an internal custom Static Single Assignment (SSA) Intermediate Representation (IR), verifies IR correctness, applies compiler optimization passes (constant folding, algebraic simplification, CSE, dead-code elimination), and executes kernels via a CPU reference interpreter.
+TileForge translates Python-like tensor kernel definitions into custom Static Single Assignment (SSA) Control Flow Graphs (CFG), computes dominance analysis, verifies IR invariants, applies optimization passes (CFG simplification, constant folding, algebraic simplification, CSE, dead-code elimination), and executes kernels via a CPU reference interpreter.
 
 ## Attributions & Inspirations
 
 TileForge is an independent research implementation inspired by studying:
 - Blocked GPU programming models and Triton
-- SSA-based compiler infrastructure (LLVM/MLIR)
+- SSA-based compiler infrastructure (LLVM/MLIR concepts)
 - Dynamic type systems and tensor compiler frontends
 
 TileForge is built entirely from scratch and does not use or copy Triton source code or internal compiler dependencies.
@@ -32,13 +32,15 @@ Semantic Analyzer (Type & Symbol Checker)
   ↓
 SSA Lowering (ast_to_ir)
   ↓
-TileForge IR
+TileForge Multi-Block SSA IR
   ↓
-Pass Manager (Constant Folding, CSE, DCE, Algebraic Simplification)
+Dominance & CFG Analysis (DominanceInfo)
+  ↓
+Pass Manager (SimplifyCFG, Constant Folding, CSE, DCE, Algebraic Simplification)
   ↓
 Optimized TileForge IR
   ↓
-CPU Reference Interpreter (NumPy)
+CPU Reference Interpreter (NumPy Execution)
 ```
 
 ## Quick Start

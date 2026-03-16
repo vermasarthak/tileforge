@@ -22,16 +22,16 @@ def test_parse_valid_kernel():
     assert len(ast_node.body) == 6
 
 
-def test_parse_rejects_loops():
+def test_parse_rejects_unsupported_loops():
     src = """
 def kernel(x):
-    for i in range(10):
-        pass
+    for i in [1, 2, 3]:
+        x = x + i
 """
     parser = Parser()
     with pytest.raises(UnsupportedSyntaxError) as exc_info:
         parser.parse_kernel(src)
-    assert "Unsupported Python statement 'For'" in str(exc_info.value)
+    assert "Unsupported loop iterator" in str(exc_info.value)
 
 
 def test_parse_rejects_arbitrary_python():
