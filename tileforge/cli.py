@@ -19,12 +19,15 @@ def main() -> None:
     # tileforge compile <file.py>
     compile_cmd = subparsers.add_parser("compile", help="Compile kernel file and print IR stages")
     compile_cmd.add_argument("filename", type=str, help="Python source file containing TileForge kernel")
+    compile_cmd.add_argument("--backend", type=str, default="cpu", choices=["cpu", "metal"], help="Target backend (cpu or metal)")
     compile_cmd.add_argument("--show-cfg", action="store_true", help="Display CFG block layout")
     compile_cmd.add_argument("--emit-cfg", type=str, default=None, help="Save Graphviz DOT CFG output to file")
+    compile_cmd.add_argument("--emit-metal", type=str, default=None, help="Save generated MSL source code to file")
 
     # tileforge run <file.py>
-    run_cmd = subparsers.add_parser("run", help="Compile and execute kernel file via CPU reference interpreter")
+    run_cmd = subparsers.add_parser("run", help="Compile and execute kernel file")
     run_cmd.add_argument("filename", type=str, help="Python source file to execute")
+    run_cmd.add_argument("--backend", type=str, default="cpu", choices=["cpu", "metal"], help="Target backend (cpu or metal)")
 
     args = parser.parse_args()
     filepath = Path(args.filename)
@@ -37,18 +40,26 @@ def main() -> None:
         with open(filepath, "r", encoding="utf-8") as f:
             code = f.read()
 
-        compiler = Compiler(optimize=True)
+        compiler = Compiler(optimize=True, backend=args.backend)
         default_args = [PointerType(F32), PointerType(F32), PointerType(F32), I32]
         try:
             res = compiler.compile(code, default_args)
             print("==========================================")
-            print(f"TILEFORGE KERNEL: {res.kernel_name}")
+            print(f"TILEFORGE KERNEL: {res.kernel_name} [{args.backend.upper()} TARGET]")
             print("==========================================")
             print("\n--- UNOPTIMIZED IR ---")
             print(res.ir_before_optimization)
             print("\n--- OPTIMIZED IR ---")
             print(res.ir_after_optimization)
             
+            if res.backend_ir:
+                print("\n--- GPU BACKEND IR ---")
+                print(res.backend_ir)
+
+            if res.generated_source:
+                print("\n--- GENERATED METAL SHADING LANGUAGE (MSL) ---")
+                print(res.generated_source)
+
             if args.show_cfg:
                 print("\n--- CFG BASIC BLOCKS ---")
                 print(" -> ".join(res.cfg))
@@ -57,6 +68,11 @@ def main() -> None:
                 with open(args.emit_cfg, "w", encoding="utf-8") as f:
                     f.write(res.dot)
                 print(f"\n✓ Saved CFG DOT file to '{args.emit_cfg}'")
+
+            if args.emit_metal and res.generated_source:
+                with open(args.emit_metal, "w", encoding="utf-8") as f:
+                    f.write(res.generated_source)
+                print(f"\n✓ Saved MSL source file to '{args.emit_metal}'")
 
             print("==========================================")
         except Exception as e:

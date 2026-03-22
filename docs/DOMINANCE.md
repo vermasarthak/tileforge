@@ -10,7 +10,7 @@ TileForge incorporates custom dominance analysis (`DominanceInfo`) to analyze fu
 
 ## Dominance Algorithm
 
-TileForge computes dominator sets iteratively using the classic fixed-point intersection algorithm over Reverse Postorder (RPO) block orderings:
+TileForge computes dominator sets iteratively using the classic **iterative fixed-point intersection algorithm** over Reverse Postorder (RPO) block orderings (rather than Lengauer-Tarjan tree-based computation, which is designed for fast idom-only calculation on large graphs):
 
 ```text
 dom[entry] = {entry}

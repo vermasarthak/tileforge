@@ -31,6 +31,10 @@ class CompilationResult:
     ir_before_optimization: str
     ir_after_optimization: str
     interpreter: CPUInterpreter
+    backend_name: str = "cpu"
+    backend_ir: Optional[str] = None
+    generated_source: Optional[str] = None
+    compiled_kernel: Any = None
 
     @property
     def cfg(self) -> List[str]:
@@ -41,14 +45,20 @@ class CompilationResult:
         return export_cfg_dot(self.function)
 
     def launch(self, grid: Tuple[int, ...], args: List[Any]) -> None:
-        """Launches kernel execution on CPU reference interpreter."""
-        self.interpreter.execute(self.function, grid=grid, args=args)
+        """Launches kernel execution on specified target backend."""
+        if self.backend_name == "metal" and self.compiled_kernel is not None:
+            self.compiled_kernel.launch(grid=grid, args=args)
+        else:
+            self.interpreter.execute(self.function, grid=grid, args=args)
 
 
 class Compiler:
     """TileForge Compiler Driver executing full frontend, IR lowering, optimization, and target execution."""
-    def __init__(self, optimize: bool = True):
+    def __init__(self, optimize: bool = True, backend: str = "cpu"):
+        if backend not in {"cpu", "metal"}:
+            raise ValueError(f"Unsupported compiler backend '{backend}'. Must be 'cpu' or 'metal'")
         self.optimize: bool = optimize
+        self.backend_name: str = backend
         self.printer: IRPrinter = IRPrinter()
         self.interpreter: CPUInterpreter = CPUInterpreter()
 
@@ -69,8 +79,6 @@ class Compiler:
         lowering = ASTToLowering()
         func = lowering.lower_kernel(kernel_ast, arg_types)
         ir_before = self.printer.print_module(lowering.module)
-        # print("--- DEBUG IR BEFORE PASSES ---")
-        # print(ir_before)
 
         # 4. Optimization Passes
         if self.optimize:
@@ -86,6 +94,18 @@ class Compiler:
 
         ir_after = self.printer.print_module(lowering.module)
 
+        backend_ir_str: Optional[str] = None
+        gen_src: Optional[str] = None
+        compiled_k: Any = None
+
+        if self.backend_name == "metal":
+            from tileforge.backend.metal import MetalBackend
+            metal_backend = MetalBackend()
+            gpu_mod = metal_backend.lower(lowering.module)
+            compiled_k = metal_backend.compile(gpu_mod, kernel_ast.name)
+            backend_ir_str = metal_backend.printer.print_module(gpu_mod)
+            gen_src = compiled_k.msl_source
+
         return CompilationResult(
             kernel_name=kernel_ast.name,
             module=lowering.module,
@@ -93,4 +113,8 @@ class Compiler:
             ir_before_optimization=ir_before,
             ir_after_optimization=ir_after,
             interpreter=self.interpreter,
+            backend_name=self.backend_name,
+            backend_ir=backend_ir_str,
+            generated_source=gen_src,
+            compiled_kernel=compiled_k,
         )

@@ -19,7 +19,7 @@ def add(x, y, out, n):
 
 def run_vector_add_demo():
     print("Compiling Vector Add Kernel...")
-    compiler = Compiler(optimize=True)
+    compiler = Compiler(optimize=True, backend="metal")
     arg_types = [PointerType(F32), PointerType(F32), PointerType(F32), I32]
     
     result = compiler.compile(add, arg_types)
