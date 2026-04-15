@@ -1,7 +1,7 @@
 """Native Apple Metal Runtime via Objective-C / ctypes FFI bridge.
 
 Handles MTLDevice, MTLCommandQueue, MTLBuffer, MTLComputePipelineState, command buffers,
-encoders, grid dispatch, and synchronous execution on Apple Silicon M1 GPU.
+encoders, grid dispatch (1D & 2D threadgroups), and synchronous execution on Apple Silicon M1 GPU.
 """
 
 from __future__ import annotations
@@ -80,18 +80,15 @@ class MetalCompiler:
         source_ns = ns_string(msl_source)
 
         err_ptr = ctypes.c_void_p(0)
-        # device.newLibraryWithSource:options:error:
         library = msg_send_new_lib(self.device, get_sel("newLibraryWithSource:options:error:"), source_ns, 0, ctypes.byref(err_ptr))
         if not library:
             raise RuntimeError(f"MSL Compilation Failed. Source:\n{msl_source}")
 
-        # library.newFunctionWithName:
         func_name_ns = ns_string(kernel_name)
         function = msg_send_id_id(library, get_sel("newFunctionWithName:"), func_name_ns)
         if not function:
             raise RuntimeError(f"Function '{kernel_name}' not found in compiled Metal library")
 
-        # device.newComputePipelineStateWithFunction:error:
         pipeline = msg_send_new_pipeline(self.device, get_sel("newComputePipelineStateWithFunction:error:"), function, ctypes.byref(err_ptr))
         if not pipeline:
             raise RuntimeError(f"Failed to create Metal compute pipeline for '{kernel_name}'")
@@ -104,7 +101,6 @@ class MetalBuffer:
     def __init__(self, device: MetalDevice, size_bytes: int):
         self.device = device.device
         self.size_bytes = size_bytes
-        # MTLResourceStorageModeShared = 0 << 4 = 0
         self.buf = msg_send_new_buffer(self.device, get_sel("newBufferWithLength:options:"), size_bytes, 0)
         if not self.buf:
             raise RuntimeError(f"Failed to allocate Metal buffer of size {size_bytes} bytes")
@@ -132,7 +128,7 @@ class MetalRuntime:
         pipeline: int,
         grid: Tuple[int, ...],
         args: List[Any],
-        threads_per_threadgroup: Tuple[int, ...] = (256, 1, 1),
+        threads_per_threadgroup: Optional[Tuple[int, ...]] = None,
     ) -> None:
         cmd_buffer = msg_send_id(self.device.command_queue, get_sel("commandBuffer"))
         encoder = msg_send_id(cmd_buffer, get_sel("computeCommandEncoder"))
@@ -148,11 +144,9 @@ class MetalRuntime:
                 buf.upload_numpy(arg)
                 metal_buffers.append(buf)
                 host_arrs.append((idx, arg, buf))
-                # encoder.setBuffer:offset:atIndex:
                 msg_send_set_buffer(encoder, get_sel("setBuffer:offset:atIndex:"), buf.buf, 0, idx)
             elif isinstance(arg, (int, np.integer)):
                 c_val = ctypes.c_int32(int(arg))
-                # encoder.setBytes:length:atIndex:
                 msg_send_set_bytes(encoder, get_sel("setBytes:length:atIndex:"), ctypes.byref(c_val), 4, idx)
             elif isinstance(arg, (float, np.floating)):
                 c_val = ctypes.c_float(float(arg))
@@ -160,25 +154,29 @@ class MetalRuntime:
             else:
                 raise TypeError(f"Unsupported Metal kernel argument type: {type(arg)}")
 
-        # Format MTLSize structures for grid and threadgroups
+        # Auto-detect 1D vs 2D threadgroup sizing
+        is_2d = len(grid) >= 2
+        if threads_per_threadgroup is None:
+            t_shape = (16, 16, 1) if is_2d else (256, 1, 1)
+        else:
+            t_shape = threads_per_threadgroup
+
         gx = grid[0] if len(grid) > 0 else 1
         gy = grid[1] if len(grid) > 1 else 1
         gz = grid[2] if len(grid) > 2 else 1
 
-        tx = threads_per_threadgroup[0] if len(threads_per_threadgroup) > 0 else 1
-        ty = threads_per_threadgroup[1] if len(threads_per_threadgroup) > 1 else 1
-        tz = threads_per_threadgroup[2] if len(threads_per_threadgroup) > 2 else 1
+        tx = t_shape[0] if len(t_shape) > 0 else 1
+        ty = t_shape[1] if len(t_shape) > 1 else 1
+        tz = t_shape[2] if len(t_shape) > 2 else 1
 
         grid_size = MTLSize(gx, gy, gz)
         threadgroup_size = MTLSize(tx, ty, tz)
 
-        # Dispatch
         msg_send_dispatch(encoder, get_sel("dispatchThreadgroups:threadsPerThreadgroup:"), grid_size, threadgroup_size)
 
         msg_send_void(encoder, get_sel("endEncoding"))
         msg_send_void(cmd_buffer, get_sel("commit"))
         msg_send_void(cmd_buffer, get_sel("waitUntilCompleted"))
 
-        # Copy updated buffer results back to host numpy arrays
         for idx, arr, buf in host_arrs:
             buf.download_numpy(arr)

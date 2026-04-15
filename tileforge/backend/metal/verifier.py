@@ -37,7 +37,22 @@ class GPUIRVerifier:
             if succ not in valid_blocks:
                 raise IRVerificationError(f"Operation {op.op_type} references invalid branch target block ^{succ.name}")
 
-        if op.op_type == GPUOpType.COND_BR:
+        if op.op_type in {GPUOpType.TILED_DOT, GPUOpType.DOT}:
+            if len(op.operands) < 2:
+                raise IRVerificationError(f"{op.op_type.value} requires 2 matrix operands")
+            bm = op.attributes.get("BM", 16)
+            bn = op.attributes.get("BN", 16)
+            bk = op.attributes.get("BK", 16)
+            if bm <= 0 or bn <= 0 or bk <= 0:
+                raise IRVerificationError(f"Tile dimensions must be positive, got BM={bm}, BN={bn}, BK={bk}")
+            if (bm * bn) > 1024:
+                raise IRVerificationError(f"Threadgroup size {bm*bn} exceeds Metal hardware limit 1024")
+
+        elif op.op_type == GPUOpType.BARRIER:
+            # Barrier must be inside kernel body
+            pass
+
+        elif op.op_type == GPUOpType.COND_BR:
             if len(op.operands) < 1:
                 raise IRVerificationError("gpu.cond_br requires condition operand")
             cond = op.operands[0]

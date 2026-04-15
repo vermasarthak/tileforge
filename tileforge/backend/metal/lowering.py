@@ -48,6 +48,14 @@ class HLToGPULowering:
 
         gpu_func = GPUFunction(hl_func.name, gpu_args)
 
+        # Check if function contains 2D matrix ops (tf.dot)
+        has_dot = any(
+            op.op_type == HLOpType.DOT
+            for block in hl_func.blocks
+            for op in block.operations
+        )
+        gpu_func.is_2d_grid = has_dot
+
         # First pass: create all GPU blocks and map block arguments
         for hl_b in hl_func.blocks:
             gpu_b = gpu_func.create_block(hl_b.name)
@@ -61,7 +69,6 @@ class HLToGPULowering:
         for hl_b in hl_func.blocks:
             gpu_b = self.block_map[hl_b]
             for arg in hl_b.args:
-                # If high level block arg is tensor, scalarize or lane-wise represent it
                 elem_type = arg.type.element_type if isinstance(arg.type, TensorType) else arg.type
                 g_arg = GPUValue(self.new_var_name(arg.name), elem_type)
                 gpu_b.args.append(g_arg)
@@ -71,12 +78,13 @@ class HLToGPULowering:
         for hl_b in hl_func.blocks:
             gpu_b = self.block_map[hl_b]
             for op in hl_b.operations:
-                self.lower_operation(op, gpu_b)
+                self.lower_operation(op, gpu_b, gpu_func)
 
         return gpu_func
 
-    def lower_operation(self, op: HLOperation, gpu_block: GPUBlock) -> None:
+    def lower_operation(self, op: HLOperation, gpu_block: GPUBlock, gpu_func: GPUFunction) -> None:
         if op.op_type == HLOpType.PROGRAM_ID:
+            axis = op.attributes.get("axis", 0)
             res_val = GPUValue(self.new_var_name("pid"), I32)
             self.val_map[op.results[0]] = res_val
             gpu_block.append_operation(
@@ -84,7 +92,7 @@ class HLToGPULowering:
                     GPUOpType.PROGRAM_ID,
                     operands=[],
                     results=[res_val],
-                    attributes={"axis": op.attributes.get("axis", 0)},
+                    attributes={"axis": axis},
                 )
             )
 
@@ -104,11 +112,9 @@ class HLToGPULowering:
             )
 
         elif op.op_type == HLOpType.ARANGE:
-            # Lower tf.arange to thread_id lane index inside block
             hl_res = op.results[0]
             start = op.attributes.get("start", 0)
             end = op.attributes.get("end", 256)
-            block_size = end - start
             
             tid_val = GPUValue(self.new_var_name("tid"), I32)
             gpu_block.append_operation(
@@ -228,11 +234,17 @@ class HLToGPULowering:
             a_val = self.val_map[op.operands[0]]
             b_val = self.val_map[op.operands[1]]
             hl_res = op.results[0]
-            res_val = GPUValue(self.new_var_name("dot"), hl_res.type)
+            res_val = GPUValue(self.new_var_name("tiled_dot"), hl_res.type)
             self.val_map[hl_res] = res_val
 
+            # Emit TILED_DOT op for GPU lowering
             gpu_block.append_operation(
-                GPUOperation(GPUOpType.DOT, operands=[a_val, b_val], results=[res_val])
+                GPUOperation(
+                    GPUOpType.TILED_DOT,
+                    operands=[a_val, b_val],
+                    results=[res_val],
+                    attributes={"BM": 16, "BN": 16, "BK": 16},
+                )
             )
 
         elif op.op_type == HLOpType.BR:

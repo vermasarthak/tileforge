@@ -25,6 +25,10 @@ class GPUOpType(Enum):
     # Execution indexing
     PROGRAM_ID = "gpu.program_id"
     THREAD_ID = "gpu.thread_id"
+    THREAD_ID_X = "gpu.thread_id_x"
+    THREAD_ID_Y = "gpu.thread_id_y"
+    THREADGROUP_ID_X = "gpu.threadgroup_id_x"
+    THREADGROUP_ID_Y = "gpu.threadgroup_id_y"
     BLOCK_DIM = "gpu.block_dim"
 
     # Constants & Literals
@@ -52,10 +56,11 @@ class GPUOpType(Enum):
     # Synchronizations
     BARRIER = "gpu.barrier"
 
-    # Reductions
+    # Reductions & Matrix ops
     REDUCE_SUM = "gpu.reduce_sum"
     REDUCE_MAX = "gpu.reduce_max"
     DOT = "gpu.dot"
+    TILED_DOT = "gpu.tiled_dot"
 
     # Control flow
     BR = "gpu.br"
@@ -147,6 +152,7 @@ class GPUFunction:
         self.name: str = name
         self.args: List[GPUKernelArg] = args
         self.blocks: List[GPUBlock] = []
+        self.is_2d_grid: bool = False
 
     def create_block(self, name: str) -> GPUBlock:
         block = GPUBlock(name, parent_function=self)
