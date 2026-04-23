@@ -51,3 +51,34 @@ def test_tiled_matmul_e2e(M, N, K):
     result.launch(grid=(grid_m, grid_n), args=[A_np, B_np, C_np, M, N, K])
 
     np.testing.assert_allclose(C_np, expected, rtol=1e-4, atol=1e-4)
+
+
+@pytest.mark.parametrize("M, N, K", [
+    (1, 1, 1),
+    (8, 8, 8),
+    (16, 16, 16),
+    (17, 17, 17),
+    (31, 23, 19),
+    (64, 64, 64),
+    (65, 71, 33),
+    (128, 128, 128),
+    (257, 193, 129),
+])
+def test_tiled_matmul_metal_gpu_e2e(M, N, K):
+    compiler = Compiler(optimize=True, backend="metal")
+    arg_types = [PointerType(F32), PointerType(F32), PointerType(F32), I32, I32, I32]
+    result = compiler.compile(matmul_kernel, arg_types)
+
+    np.random.seed(42)
+    A_np = np.random.randn(M, K).astype(np.float32)
+    B_np = np.random.randn(K, N).astype(np.float32)
+    C_np = np.zeros((M, N), dtype=np.float32)
+
+    expected = np.matmul(A_np, B_np)
+
+    grid_m = (M + 15) // 16
+    grid_n = (N + 15) // 16
+
+    result.launch(grid=(grid_n, grid_m), args=[A_np, B_np, C_np, M, N, K])
+
+    np.testing.assert_allclose(C_np, expected, rtol=1e-4, atol=1e-4)

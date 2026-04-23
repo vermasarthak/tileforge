@@ -91,3 +91,22 @@ def test_verifier_negative_invalid_branch_target():
     module.functions.append(func)
     with pytest.raises(IRVerificationError, match="invalid branch target block"):
         verifier.verify_module(module)
+
+def test_verifier_negative_tiled_dot_invalid_tile():
+    verifier = GPUIRVerifier()
+    func = GPUFunction("test", [])
+    block = GPUBlock("entry")
+    func.blocks.append(block)
+    
+    v1 = GPUValue("a", F32)
+    v2 = GPUValue("b", F32)
+    res = GPUValue("out", F32)
+    
+    op = GPUOperation(GPUOpType.TILED_DOT, operands=[v1, v2], results=[res], attributes={"BM": -16})
+    block.operations.append(op)
+    block.operations.append(GPUOperation(GPUOpType.RETURN))
+    
+    module = GPUModule()
+    module.functions.append(func)
+    with pytest.raises(IRVerificationError, match="Tile dimensions must be positive"):
+        verifier.verify_module(module)
