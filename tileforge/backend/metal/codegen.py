@@ -46,44 +46,40 @@ class MSLCodeGenerator:
         return "\n".join(lines)
 
     def generate_function(self, func: GPUFunction) -> str:
-        # Detect if function is a 2D threadgroup tiled GEMM kernel
-        has_tiled_dot = any(
-            op.op_type in {GPUOpType.TILED_DOT, GPUOpType.DOT}
-            for block in func.blocks
-            for op in block.operations
-        ) or func.is_2d_grid
-
-        if has_tiled_dot:
-            return self.generate_tiled_matmul_function(func)
-
-        return self.generate_standard_function(func)
-
-    def generate_standard_function(self, func: GPUFunction) -> str:
         param_lines = []
+        is_2d = (func.grid_dimensions and len(func.grid_dimensions) >= 2 and func.grid_dimensions != (1,)) or (func.threadgroup_dimensions and len(func.threadgroup_dimensions) >= 2 and func.threadgroup_dimensions[1] > 1)
+        
         for i, arg in enumerate(func.args):
             if isinstance(arg.type, PointerType):
                 param_lines.append(f"    device {self.format_type(arg.type.element_type)}* {sanitize_name(arg.name)} [[buffer({i})]]")
             else:
                 param_lines.append(f"    constant {self.format_type(arg.type)}& {sanitize_name(arg.name)} [[buffer({i})]]")
-        param_lines.append("    uint3 tid [[thread_position_in_threadgroup]]")
-        param_lines.append("    uint3 tgid [[threadgroup_position_in_grid]]")
+        
+        if is_2d:
+            param_lines.append("    uint2 tid [[thread_position_in_threadgroup]]")
+            param_lines.append("    uint2 tgid [[threadgroup_position_in_grid]]")
+        else:
+            param_lines.append("    uint3 tid [[thread_position_in_threadgroup]]")
+            param_lines.append("    uint3 tgid [[threadgroup_position_in_grid]]")
 
         code_lines = [f"kernel void {sanitize_name(func.name)}(", ",\n".join(param_lines), ") {"]
 
         has_reduction = any(op.op_type in {GPUOpType.REDUCE_SUM, GPUOpType.REDUCE_MAX} for block in func.blocks for op in block.operations)
-        if has_reduction: code_lines.append("    threadgroup float shared_scratch[256];")
+        if has_reduction:
+            code_lines.append("    threadgroup float shared_scratch[256];")
 
-        # Declare variables
+        # Declare local SSA variables
         declared_vars = {}
         for block in func.blocks:
-            for arg in block.args: declared_vars[sanitize_name(arg.name)] = arg.type
+            for arg in block.args:
+                declared_vars[sanitize_name(arg.name)] = arg.type
             for op in block.operations:
-                for res in op.results: declared_vars[sanitize_name(res.name)] = res.type
+                for res in op.results:
+                    declared_vars[sanitize_name(res.name)] = res.type
 
         for name, typ in declared_vars.items():
             code_lines.append(f"    {self.format_type(typ)} {name};")
 
-        # Assign integer IDs to blocks
         block_ids = {block.name: i for i, block in enumerate(func.blocks)}
 
         if not func.blocks:
@@ -97,7 +93,7 @@ class MSLCodeGenerator:
         for block in func.blocks:
             code_lines.append(f"            case {block_ids[block.name]}: {{")
             for op in block.operations:
-                stmt = self.generate_operation(op, block_ids)
+                stmt = self.generate_operation(op, block_ids, func)
                 if stmt:
                     for line in stmt.split('\n'):
                         code_lines.append(f"                {line}")
@@ -108,77 +104,7 @@ class MSLCodeGenerator:
         code_lines.append("}")
         return "\n".join(code_lines)
 
-    def generate_tiled_matmul_function(self, func: GPUFunction) -> str:
-        param_lines = []
-        for i, arg in enumerate(func.args):
-            if isinstance(arg.type, PointerType):
-                param_lines.append(f"    device const {self.format_type(arg.type.element_type)}* {sanitize_name(arg.name)} [[buffer({i})]]" if i < 2 else f"    device {self.format_type(arg.type.element_type)}* {sanitize_name(arg.name)} [[buffer({i})]]")
-            else:
-                param_lines.append(f"    constant int& {sanitize_name(arg.name)} [[buffer({i})]]")
-        param_lines.append("    uint2 tid [[thread_position_in_threadgroup]]")
-        param_lines.append("    uint2 tgid [[threadgroup_position_in_grid]]")
-
-        # Param names assume (A, B, C, M, N, K) signature
-        arg_names = [sanitize_name(a.name) for a in func.args]
-        var_A = arg_names[0] if len(arg_names) > 0 else "A"
-        var_B = arg_names[1] if len(arg_names) > 1 else "B"
-        var_C = arg_names[2] if len(arg_names) > 2 else "C"
-        var_M = arg_names[3] if len(arg_names) > 3 else "M"
-        var_N = arg_names[4] if len(arg_names) > 4 else "N"
-        var_K = arg_names[5] if len(arg_names) > 5 else "K"
-
-        msl = f"""kernel void {sanitize_name(func.name)}(
-{",\n".join(param_lines)}
-) {{
-    // 2D Threadgroup shared memory tile allocation (BM=16, BN=16, BK=16)
-    threadgroup float tileA[16][16];
-    threadgroup float tileB[16][16];
-
-    // 2D Thread and Block indexing
-    uint tid_x = tid.x; // column local (0..15)
-    uint tid_y = tid.y; // row local (0..15)
-
-    uint row = tgid.y * 16 + tid_y;
-    uint col = tgid.x * 16 + tid_x;
-
-    float acc = 0.0f;
-
-    // K-tile loop over global K dimension
-    for (int k0 = 0; k0 < {var_K}; k0 += 16) {{
-        // Cooperative load tileA [BM x BK] with edge masking
-        if (row < (uint){var_M} && (k0 + tid_x) < (uint){var_K}) {{
-            tileA[tid_y][tid_x] = {var_A}[row * {var_K} + (k0 + tid_x)];
-        }} else {{
-            tileA[tid_y][tid_x] = 0.0f;
-        }}
-
-        // Cooperative load tileB [BK x BN] with edge masking
-        if ((k0 + tid_y) < (uint){var_K} && col < (uint){var_N}) {{
-            tileB[tid_y][tid_x] = {var_B}[(k0 + tid_y) * {var_N} + col];
-        }} else {{
-            tileB[tid_y][tid_x] = 0.0f;
-        }}
-
-        // Barrier 1: Wait for threadgroup tile load to complete
-        threadgroup_barrier(mem_flags::mem_threadgroup);
-
-        // Compute 16x16 tile dot product into local accumulator
-        for (int k_inner = 0; k_inner < 16; ++k_inner) {{
-            acc += tileA[tid_y][k_inner] * tileB[k_inner][tid_x];
-        }}
-
-        // Barrier 2: Wait for tile compute to finish before overwriting shared memory in next iteration
-        threadgroup_barrier(mem_flags::mem_threadgroup);
-    }}
-
-    // Write back computed accumulator to global memory with edge masking
-    if (row < (uint){var_M} && col < (uint){var_N}) {{
-        {var_C}[row * {var_N} + col] = acc;
-    }}
-}}"""
-        return msl
-
-    def generate_operation(self, op: GPUOperation, block_ids: Dict[str, int]) -> str:
+    def generate_operation(self, op: GPUOperation, block_ids: Dict[str, int], func: GPUFunction) -> str:
         if op.op_type == GPUOpType.PROGRAM_ID:
             axis = op.attributes.get("axis", 0)
             axis_attr = ["tgid.x", "tgid.y", "tgid.z"][axis]
@@ -220,6 +146,61 @@ class MSLCodeGenerator:
             if op.attributes.get("has_mask", False) and len(op.operands) > 3:
                 return f"if ({sanitize_name(op.operands[3].name)}) {{ {ptr}[{offs}] = {val}; }}"
             return f"{ptr}[{offs}] = {val};"
+        elif op.op_type == GPUOpType.TILED_DOT:
+            bm = op.attributes.get("BM", 16)
+            bn = op.attributes.get("BN", 16)
+            bk = op.attributes.get("BK", 16)
+            res_var = sanitize_name(op.results[0].name)
+
+            ptr_a = sanitize_name(op.operands[0].name)
+            ptr_b = sanitize_name(op.operands[1].name)
+            var_m = sanitize_name(op.operands[2].name) if len(op.operands) > 2 else "var_M"
+            var_n = sanitize_name(op.operands[3].name) if len(op.operands) > 3 else "var_N"
+            var_k = sanitize_name(op.operands[4].name) if len(op.operands) > 4 else "var_K"
+
+            return (
+                f"threadgroup float tileA[{bm}][{bk}];\n"
+                f"threadgroup float tileB[{bk}][{bn}];\n"
+                f"uint row = tgid.y * {bm} + tid.y;\n"
+                f"uint col = tgid.x * {bn} + tid.x;\n"
+                f"{res_var} = 0.0f;\n"
+                f"for (int k0 = 0; k0 < {var_k}; k0 += {bk}) {{\n"
+                f"    if (row < (uint){var_m} && (k0 + tid.x) < (uint){var_k}) {{\n"
+                f"        tileA[tid.y][tid.x] = {ptr_a}[row * {var_k} + (k0 + tid.x)];\n"
+                f"    }} else {{\n"
+                f"        tileA[tid.y][tid.x] = 0.0f;\n"
+                f"    }}\n"
+                f"    if ((k0 + tid.y) < (uint){var_k} && col < (uint){var_n}) {{\n"
+                f"        tileB[tid.y][tid.x] = {ptr_b}[(k0 + tid.y) * {var_n} + col];\n"
+                f"    }} else {{\n"
+                f"        tileB[tid.y][tid.x] = 0.0f;\n"
+                f"    }}\n"
+                f"    threadgroup_barrier(mem_flags::mem_threadgroup);\n"
+                f"    for (int k_inner = 0; k_inner < {bk}; ++k_inner) {{\n"
+                f"        {res_var} += tileA[tid.y][k_inner] * tileB[k_inner][tid.x];\n"
+                f"    }}\n"
+                f"    threadgroup_barrier(mem_flags::mem_threadgroup);\n"
+                f"}}"
+            )
+        elif op.op_type == GPUOpType.TILED_STORE:
+            ptr_c = sanitize_name(op.operands[0].name)
+            val_to_store = sanitize_name(op.operands[1].name)
+            var_m = sanitize_name(op.operands[2].name)
+            var_n = sanitize_name(op.operands[3].name)
+
+            bm = 16
+            bn = 16
+            if func.threadgroup_dimensions and len(func.threadgroup_dimensions) >= 2:
+                bn = func.threadgroup_dimensions[0]
+                bm = func.threadgroup_dimensions[1]
+
+            return (
+                f"uint store_row = tgid.y * {bm} + tid.y;\n"
+                f"uint store_col = tgid.x * {bn} + tid.x;\n"
+                f"if (store_row < (uint){var_m} && store_col < (uint){var_n}) {{\n"
+                f"    {ptr_c}[store_row * {var_n} + store_col] = {val_to_store};\n"
+                f"}}"
+            )
         elif op.op_type in {GPUOpType.REDUCE_SUM, GPUOpType.REDUCE_MAX}:
             val = sanitize_name(op.operands[0].name)
             accum_expr = f"shared_scratch[tid.x] += shared_scratch[tid.x + s];" if op.op_type == GPUOpType.REDUCE_SUM else f"shared_scratch[tid.x] = max(shared_scratch[tid.x], shared_scratch[tid.x + s]);"

@@ -19,6 +19,7 @@ class GPUIRVerifier:
 
         valid_blocks = set(func.blocks)
 
+        tiled_dot_count = 0
         for block in func.blocks:
             if not block.operations:
                 raise IRVerificationError(f"GPU Block ^{block.name} in @{func.name} has no operations")
@@ -26,7 +27,12 @@ class GPUIRVerifier:
                 raise IRVerificationError(f"GPU Block ^{block.name} must end with a terminator operation")
 
             for op in block.operations:
+                if op.op_type == GPUOpType.TILED_DOT:
+                    tiled_dot_count += 1
                 self._verify_operation(op, func, valid_blocks)
+
+        if tiled_dot_count > 1:
+            raise IRVerificationError(f"GPU Function @{func.name} contains {tiled_dot_count} TILED_DOT operations (maximum 1 allowed per kernel)")
 
     def _verify_operation(self, op: GPUOperation, func: GPUFunction, valid_blocks: set) -> None:
         valid_op_types = set(GPUOpType)
@@ -78,3 +84,10 @@ class GPUIRVerifier:
             ptr = op.operands[0]
             if not isinstance(ptr.type, PointerType):
                 raise IRVerificationError(f"gpu.global_store pointer must be PointerType, got {ptr.type}")
+
+        elif op.op_type == GPUOpType.TILED_STORE:
+            if len(op.operands) < 4:
+                raise IRVerificationError("gpu.tiled_store requires ptr, value, M, and N operands")
+            ptr = op.operands[0]
+            if not isinstance(ptr.type, PointerType):
+                raise IRVerificationError(f"gpu.tiled_store pointer must be PointerType, got {ptr.type}")

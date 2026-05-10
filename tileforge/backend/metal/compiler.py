@@ -24,15 +24,17 @@ class MetalCompiledKernel(CompiledKernel):
         gpu_module: GPUModule,
         pipeline_state: int,
         runtime: MetalRuntime,
+        threadgroup_dimensions: Tuple[int, ...] = (256, 1, 1),
     ):
         self.kernel_name = kernel_name
         self.msl_source = msl_source
         self.gpu_module = gpu_module
         self.pipeline_state = pipeline_state
         self.runtime = runtime
+        self.threadgroup_dimensions = threadgroup_dimensions
 
     def launch(self, grid: Tuple[int, ...], args: List[Any]) -> None:
-        self.runtime.dispatch(self.pipeline_state, grid, args)
+        self.runtime.dispatch(self.pipeline_state, grid, args, threads_per_threadgroup=self.threadgroup_dimensions)
 
 
 class MetalBackend(Backend):
@@ -66,8 +68,15 @@ class MetalBackend(Backend):
         if os.environ.get("TILEFORGE_DEBUG") == "1":
             print("\n--- DEBUG: GENERATED MSL SOURCE ---\n" + msl_source + "\n-------------------------------------")
 
+        # Find function metadata for threadgroup dimensions
+        tg_dims = (256, 1, 1)
+        for f in lowered_module.functions:
+            if f.name == func_name:
+                tg_dims = f.threadgroup_dimensions
+                break
+
         # Compute deterministic cache key
-        cache_key = hashlib.sha256(msl_source.encode("utf-8")).hexdigest()
+        cache_key = hashlib.sha256((msl_source + str(tg_dims)).encode("utf-8")).hexdigest()
         if cache_key in self.pipeline_cache:
             compiled, _, _ = self.pipeline_cache[cache_key]
             return compiled
@@ -79,6 +88,7 @@ class MetalBackend(Backend):
             gpu_module=lowered_module,
             pipeline_state=pipeline,
             runtime=self.runtime,
+            threadgroup_dimensions=tg_dims,
         )
 
         gpu_ir_str = self.printer.print_module(lowered_module)

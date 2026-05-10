@@ -47,8 +47,10 @@ class GPUOpType(Enum):
     SELECT = "gpu.select"
 
     # Memory Access
+    # Memory Access
     GLOBAL_LOAD = "gpu.global_load"
     GLOBAL_STORE = "gpu.global_store"
+    TILED_STORE = "gpu.tiled_store"
     LOCAL_ALLOC = "gpu.local_alloc"
     LOCAL_LOAD = "gpu.local_load"
     LOCAL_STORE = "gpu.local_store"
@@ -152,7 +154,8 @@ class GPUFunction:
         self.name: str = name
         self.args: List[GPUKernelArg] = args
         self.blocks: List[GPUBlock] = []
-        self.is_2d_grid: bool = False
+        self.grid_dimensions: Tuple[int, ...] = (1,)
+        self.threadgroup_dimensions: Tuple[int, ...] = (256, 1, 1)
 
     def create_block(self, name: str) -> GPUBlock:
         block = GPUBlock(name, parent_function=self)

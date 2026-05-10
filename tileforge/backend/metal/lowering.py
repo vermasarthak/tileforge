@@ -48,13 +48,22 @@ class HLToGPULowering:
 
         gpu_func = GPUFunction(hl_func.name, gpu_args)
 
-        # Check if function contains 2D matrix ops (tf.dot)
-        has_dot = any(
-            op.op_type == HLOpType.DOT
-            for block in hl_func.blocks
-            for op in block.operations
-        )
-        gpu_func.is_2d_grid = has_dot
+        dot_op = None
+        for block in hl_func.blocks:
+            for op in block.operations:
+                if op.op_type == HLOpType.DOT:
+                    dot_op = op
+                    break
+            if dot_op: break
+
+        if dot_op:
+            bm = dot_op.attributes.get("BM", 16)
+            bn = dot_op.attributes.get("BN", 16)
+            gpu_func.grid_dimensions = (2,)
+            gpu_func.threadgroup_dimensions = (bn, bm, 1)
+        else:
+            gpu_func.grid_dimensions = (1,)
+            gpu_func.threadgroup_dimensions = (256, 1, 1)
 
         # First pass: create all GPU blocks and map block arguments
         for hl_b in hl_func.blocks:
@@ -78,11 +87,11 @@ class HLToGPULowering:
         for hl_b in hl_func.blocks:
             gpu_b = self.block_map[hl_b]
             for op in hl_b.operations:
-                self.lower_operation(op, gpu_b, gpu_func)
+                self.lower_operation(op, gpu_b, gpu_func, hl_func)
 
         return gpu_func
 
-    def lower_operation(self, op: HLOperation, gpu_block: GPUBlock, gpu_func: GPUFunction) -> None:
+    def lower_operation(self, op: HLOperation, gpu_block: GPUBlock, gpu_func: GPUFunction, hl_func: HLFunction) -> None:
         if op.op_type == HLOpType.PROGRAM_ID:
             axis = op.attributes.get("axis", 0)
             res_val = GPUValue(self.new_var_name("pid"), I32)
@@ -206,18 +215,32 @@ class HLToGPULowering:
             val = self.val_map[op.operands[2]]
             mask = self.val_map[op.operands[3]] if len(op.operands) > 3 else None
 
-            operands = [ptr, offs, val]
-            if mask:
-                operands.append(mask)
-
-            gpu_block.append_operation(
-                GPUOperation(
-                    GPUOpType.GLOBAL_STORE,
-                    operands=operands,
-                    results=[],
-                    attributes={"has_mask": mask is not None},
+            # Check if this function is a 2D matrix kernel (has DOT operation)
+            has_dot = any(o.op_type == HLOpType.DOT for b in hl_func.blocks for o in b.operations)
+            if has_dot and len(hl_func.args) >= 5:
+                func_args_gpu = [self.val_map[a] for a in hl_func.args]
+                var_m = func_args_gpu[3]
+                var_n = func_args_gpu[4]
+                gpu_block.append_operation(
+                    GPUOperation(
+                        GPUOpType.TILED_STORE,
+                        operands=[ptr, val, var_m, var_n],
+                        results=[],
+                    )
                 )
-            )
+            else:
+                operands = [ptr, offs, val]
+                if mask:
+                    operands.append(mask)
+
+                gpu_block.append_operation(
+                    GPUOperation(
+                        GPUOpType.GLOBAL_STORE,
+                        operands=operands,
+                        results=[],
+                        attributes={"has_mask": mask is not None},
+                    )
+                )
 
         elif op.op_type in {HLOpType.REDUCE_SUM, HLOpType.REDUCE_MAX}:
             in_val = self.val_map[op.operands[0]]
@@ -237,13 +260,30 @@ class HLToGPULowering:
             res_val = GPUValue(self.new_var_name("tiled_dot"), hl_res.type)
             self.val_map[hl_res] = res_val
 
-            # Emit TILED_DOT op for GPU lowering
+            # Resolve A_ptr, B_ptr, M, N, K operands explicitly from function signature / IR
+            func_args_gpu = [self.val_map[a] for a in hl_func.args]
+            ptr_a = func_args_gpu[0] if len(func_args_gpu) > 0 else a_val
+            ptr_b = func_args_gpu[1] if len(func_args_gpu) > 1 else b_val
+            
+            m_val = func_args_gpu[3] if len(func_args_gpu) > 3 else None
+            n_val = func_args_gpu[4] if len(func_args_gpu) > 4 else None
+            k_val = func_args_gpu[5] if len(func_args_gpu) > 5 else None
+
+            bm = op.attributes.get("BM", 16)
+            bn = op.attributes.get("BN", 16)
+            bk = op.attributes.get("BK", 16)
+
+            dot_operands = [ptr_a, ptr_b]
+            if m_val: dot_operands.append(m_val)
+            if n_val: dot_operands.append(n_val)
+            if k_val: dot_operands.append(k_val)
+
             gpu_block.append_operation(
                 GPUOperation(
                     GPUOpType.TILED_DOT,
-                    operands=[a_val, b_val],
+                    operands=dot_operands,
                     results=[res_val],
-                    attributes={"BM": 16, "BN": 16, "BK": 16},
+                    attributes={"BM": bm, "BN": bn, "BK": bk},
                 )
             )
 
