@@ -110,3 +110,25 @@ def test_verifier_negative_tiled_dot_invalid_tile():
     module.functions.append(func)
     with pytest.raises(IRVerificationError, match="Tile dimensions must be positive"):
         verifier.verify_module(module)
+
+def test_verifier_multiple_tiled_dot_rejected():
+    verifier = GPUIRVerifier()
+    func = GPUFunction("test", [])
+    block = GPUBlock("entry")
+    func.blocks.append(block)
+    
+    v1 = GPUValue("a", F32)
+    v2 = GPUValue("b", F32)
+    res1 = GPUValue("out1", F32)
+    res2 = GPUValue("out2", F32)
+    
+    op1 = GPUOperation(GPUOpType.TILED_DOT, operands=[v1, v2], results=[res1], attributes={"BM": 16, "BN": 16, "BK": 16})
+    op2 = GPUOperation(GPUOpType.TILED_DOT, operands=[v1, v2], results=[res2], attributes={"BM": 16, "BN": 16, "BK": 16})
+    block.operations.append(op1)
+    block.operations.append(op2)
+    block.operations.append(GPUOperation(GPUOpType.RETURN))
+    
+    module = GPUModule()
+    module.functions.append(func)
+    with pytest.raises(IRVerificationError, match="maximum 1 allowed per kernel"):
+        verifier.verify_module(module)

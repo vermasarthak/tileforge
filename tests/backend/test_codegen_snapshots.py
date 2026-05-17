@@ -79,3 +79,37 @@ def test_cfg_runtime_execution():
     res_cpu.launch(grid=(1,), args=[x, out_cpu, 3])
 
     np.testing.assert_allclose(out_metal, out_cpu, rtol=1e-5, atol=1e-5)
+
+def test_regression_no_whole_function_template_routing():
+    import inspect
+    from tileforge.backend.metal import codegen
+    source = inspect.getsource(codegen)
+    assert "generate_tiled_matmul_function" not in source
+    assert "has_tiled_dot" not in source
+
+def test_custom_arg_names_and_surrounding_ops():
+    @tf.kernel
+    def custom_matmul(p, q, r, s, t, u):
+        pid_m = tf.program_id(0)
+        pid_n = tf.program_id(1)
+        offs_m = pid_m * 16 + tf.arange(0, 16)
+        offs_n = pid_n * 16 + tf.arange(0, 16)
+        acc = tf.zeros((16, 16), "f32")
+        for k in tf.range(0, u):
+            a = tf.load(p, (offs_m, k))
+            b = tf.load(q, (k, offs_n))
+            acc = acc + tf.dot(a, b)
+        tf.store(r, (offs_m, offs_n), acc)
+
+    compiler = Compiler(optimize=True, backend="metal")
+    arg_types = [PointerType(F32), PointerType(F32), PointerType(F32), I32, I32, I32]
+    res = compiler.compile(custom_matmul, arg_types)
+    msl = res.generated_source
+
+    assert "var_p" in msl
+    assert "var_q" in msl
+    assert "var_r" in msl
+    assert "var_s" in msl
+    assert "var_t" in msl
+    assert "var_u" in msl
+    assert "switch (_state)" in msl
