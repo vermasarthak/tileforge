@@ -221,10 +221,17 @@ class HLToGPULowering:
                 func_args_gpu = [self.val_map[a] for a in hl_func.args]
                 var_m = func_args_gpu[3]
                 var_n = func_args_gpu[4]
+                # If store val is mapped to loop block arg, locate the accumulated result
+                accum_val = val
+                for b in hl_func.blocks:
+                    for o in b.operations:
+                        if o.op_type == HLOpType.DOT:
+                            accum_val = self.val_map[o.results[0]]
+                            break
                 gpu_block.append_operation(
                     GPUOperation(
                         GPUOpType.TILED_STORE,
-                        operands=[ptr, val, var_m, var_n],
+                        operands=[ptr, accum_val, var_m, var_n],
                         results=[],
                     )
                 )

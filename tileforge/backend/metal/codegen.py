@@ -78,7 +78,11 @@ class MSLCodeGenerator:
                     declared_vars[sanitize_name(res.name)] = res.type
 
         for name, typ in declared_vars.items():
-            code_lines.append(f"    {self.format_type(typ)} {name};")
+            fmt_t = self.format_type(typ)
+            if fmt_t == "float":
+                code_lines.append(f"    {fmt_t} {name} = 0.0f;")
+            else:
+                code_lines.append(f"    {fmt_t} {name};")
 
         block_ids = {block.name: i for i, block in enumerate(func.blocks)}
 
@@ -163,7 +167,7 @@ class MSLCodeGenerator:
                 f"threadgroup float tileB[{bk}][{bn}];\n"
                 f"uint row = tgid.y * {bm} + tid.y;\n"
                 f"uint col = tgid.x * {bn} + tid.x;\n"
-                f"{res_var} = 0.0f;\n"
+                f"float accum_dot = 0.0f;\n"
                 f"for (int k0 = 0; k0 < {var_k}; k0 += {bk}) {{\n"
                 f"    if (row < (uint){var_m} && (k0 + tid.x) < (uint){var_k}) {{\n"
                 f"        tileA[tid.y][tid.x] = {ptr_a}[row * {var_k} + (k0 + tid.x)];\n"
@@ -177,10 +181,11 @@ class MSLCodeGenerator:
                 f"    }}\n"
                 f"    threadgroup_barrier(mem_flags::mem_threadgroup);\n"
                 f"    for (int k_inner = 0; k_inner < {bk}; ++k_inner) {{\n"
-                f"        {res_var} += tileA[tid.y][k_inner] * tileB[k_inner][tid.x];\n"
+                f"        accum_dot += tileA[tid.y][k_inner] * tileB[k_inner][tid.x];\n"
                 f"    }}\n"
                 f"    threadgroup_barrier(mem_flags::mem_threadgroup);\n"
-                f"}}"
+                f"}}\n"
+                f"{res_var} = accum_dot;"
             )
         elif op.op_type == GPUOpType.TILED_STORE:
             ptr_c = sanitize_name(op.operands[0].name)
