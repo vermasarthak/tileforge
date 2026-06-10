@@ -55,8 +55,10 @@ class GPUIRVerifier:
                 raise IRVerificationError(f"Threadgroup size {bm*bn} exceeds Metal hardware limit 1024")
 
         elif op.op_type == GPUOpType.BARRIER:
-            # Barrier must be inside kernel body
-            pass
+            if len(op.operands) != 0:
+                raise IRVerificationError(f"gpu.barrier expects 0 operands, got {len(op.operands)}")
+            if len(op.results) != 0:
+                raise IRVerificationError(f"gpu.barrier expects 0 results, got {len(op.results)}")
 
         elif op.op_type == GPUOpType.COND_BR:
             if len(op.operands) < 1:

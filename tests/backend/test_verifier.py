@@ -132,3 +132,30 @@ def test_verifier_multiple_tiled_dot_rejected():
     module.functions.append(func)
     with pytest.raises(IRVerificationError, match="maximum 1 allowed per kernel"):
         verifier.verify_module(module)
+
+def test_verifier_barrier_invariants():
+    verifier = GPUIRVerifier()
+    func = GPUFunction("test_barrier", [])
+    block = GPUBlock("entry")
+    func.blocks.append(block)
+
+    # Valid barrier
+    op_valid = GPUOperation(GPUOpType.BARRIER)
+    block.operations.append(op_valid)
+    block.operations.append(GPUOperation(GPUOpType.RETURN))
+    module = GPUModule()
+    module.functions.append(func)
+    verifier.verify_module(module)
+
+    # Invalid barrier with operand
+    func_bad = GPUFunction("test_bad_barrier", [])
+    block_bad = GPUBlock("entry")
+    func_bad.blocks.append(block_bad)
+    op_bad = GPUOperation(GPUOpType.BARRIER, operands=[GPUValue("dummy", F32)])
+    block_bad.operations.append(op_bad)
+    block_bad.operations.append(GPUOperation(GPUOpType.RETURN))
+    mod_bad = GPUModule()
+    mod_bad.functions.append(func_bad)
+
+    with pytest.raises(IRVerificationError, match="gpu.barrier expects 0 operands"):
+        verifier.verify_module(mod_bad)
