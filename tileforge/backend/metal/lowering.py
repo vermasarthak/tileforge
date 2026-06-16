@@ -217,21 +217,16 @@ class HLToGPULowering:
 
             # Check if this function is a 2D matrix kernel (has DOT operation)
             has_dot = any(o.op_type == HLOpType.DOT for b in hl_func.blocks for o in b.operations)
-            if has_dot and len(hl_func.args) >= 5:
-                func_args_gpu = [self.val_map[a] for a in hl_func.args]
-                var_m = func_args_gpu[3]
-                var_n = func_args_gpu[4]
-                # If store val is mapped to loop block arg, locate the accumulated result
-                accum_val = val
-                for b in hl_func.blocks:
-                    for o in b.operations:
-                        if o.op_type == HLOpType.DOT:
-                            accum_val = self.val_map[o.results[0]]
-                            break
+            if has_dot:
+                # Resolve dimension arguments M and N dynamically from non-pointer scalar parameters
+                scalar_args = [self.val_map[arg] for arg in hl_func.args if not isinstance(arg.type, PointerType)]
+                var_m = scalar_args[0] if len(scalar_args) > 0 else GPUValue("var_M", I32)
+                var_n = scalar_args[1] if len(scalar_args) > 1 else GPUValue("var_N", I32)
+
                 gpu_block.append_operation(
                     GPUOperation(
                         GPUOpType.TILED_STORE,
-                        operands=[ptr, accum_val, var_m, var_n],
+                        operands=[ptr, val, var_m, var_n],
                         results=[],
                     )
                 )
@@ -267,14 +262,41 @@ class HLToGPULowering:
             res_val = GPUValue(self.new_var_name("tiled_dot"), hl_res.type)
             self.val_map[hl_res] = res_val
 
-            # Resolve A_ptr, B_ptr, M, N, K operands explicitly from function signature / IR
-            func_args_gpu = [self.val_map[a] for a in hl_func.args]
-            ptr_a = func_args_gpu[0] if len(func_args_gpu) > 0 else a_val
-            ptr_b = func_args_gpu[1] if len(func_args_gpu) > 1 else b_val
-            
-            m_val = func_args_gpu[3] if len(func_args_gpu) > 3 else None
-            n_val = func_args_gpu[4] if len(func_args_gpu) > 4 else None
-            k_val = func_args_gpu[5] if len(func_args_gpu) > 5 else None
+            # Trace DOT operands (a_val, b_val) back through SSA LOAD operations to get true matrix buffer pointers
+            def trace_load_ptr(val_target: HLValue) -> Optional[GPUValue]:
+                for b in hl_func.blocks:
+                    for o in b.operations:
+                        if o.op_type == HLOpType.LOAD and len(o.results) > 0:
+                            if o.results[0] == val_target:
+                                return self.val_map[o.operands[0]]
+                # Handle block arguments (e.g. from loop header)
+                for b in hl_func.blocks:
+                    if val_target in b.args:
+                        arg_i = b.args.index(val_target)
+                        for pred_b in hl_func.blocks:
+                            for o in pred_b.operations:
+                                if o.op_type == HLOpType.BR and len(o.operands) > arg_i:
+                                    res_ptr = trace_load_ptr(o.operands[arg_i])
+                                    if res_ptr:
+                                        return res_ptr
+                return None
+
+            traced_a = trace_load_ptr(op.operands[0])
+            traced_b = trace_load_ptr(op.operands[1])
+
+            if traced_a is None or traced_b is None:
+                raise RuntimeError(
+                    f"Backend Lowering Error: Unable to trace matrix source pointers for tf.dot operands {op.operands[0]} and {op.operands[1]}"
+                )
+
+            ptr_a = traced_a
+            ptr_b = traced_b
+
+            # Dynamically derive M, N, K scalar parameters from function signature non-pointer arguments
+            scalar_args = [self.val_map[arg] for arg in hl_func.args if not isinstance(arg.type, PointerType)]
+            m_val = scalar_args[0] if len(scalar_args) > 0 else None
+            n_val = scalar_args[1] if len(scalar_args) > 1 else None
+            k_val = scalar_args[2] if len(scalar_args) > 2 else None
 
             bm = op.attributes.get("BM", 16)
             bn = op.attributes.get("BN", 16)

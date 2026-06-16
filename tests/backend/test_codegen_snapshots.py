@@ -113,3 +113,73 @@ def test_custom_arg_names_and_surrounding_ops():
     assert "var_t" in msl
     assert "var_u" in msl
     assert "switch (_state)" in msl
+
+def test_post_dot_surrounding_ops_e2e():
+    @tf.kernel
+    def fused_matmul(A, B, C, M, N, K, scale, bias):
+        pid_m = tf.program_id(0)
+        pid_n = tf.program_id(1)
+        offs_m = pid_m * 16 + tf.arange(0, 16)
+        offs_n = pid_n * 16 + tf.arange(0, 16)
+        acc = tf.zeros((16, 16), "f32")
+        for k in tf.range(0, K):
+            a = tf.load(A, (offs_m, k))
+            b = tf.load(B, (k, offs_n))
+            acc = acc + tf.dot(a, b)
+        tmp1 = acc * scale
+        tmp2 = tmp1 + bias
+        tmp3 = tmp2 * 2.0
+        tf.store(C, (offs_m, offs_n), tmp3)
+
+    compiler = Compiler(optimize=True, backend="metal")
+    arg_types = [PointerType(F32), PointerType(F32), PointerType(F32), I32, I32, I32, F32, F32]
+    result = compiler.compile(fused_matmul, arg_types)
+
+    import numpy as np
+    M, N, K = 16, 16, 16
+    scale, bias = 0.5, 1.5
+    np.random.seed(42)
+    A_np = np.random.randn(M, K).astype(np.float32)
+    B_np = np.random.randn(K, N).astype(np.float32)
+    C_np = np.zeros((M, N), dtype=np.float32)
+
+    dot_expected = np.matmul(A_np, B_np)
+    expected = (dot_expected * scale + bias) * 2.0
+
+    grid_m = (M + 15) // 16
+    grid_n = (N + 15) // 16
+    result.launch(grid=(grid_n, grid_m), args=[A_np, B_np, C_np, M, N, K, scale, bias])
+
+    np.testing.assert_allclose(C_np, expected, rtol=1e-4, atol=1e-4)
+
+def test_reordered_parameters_matmul_e2e():
+    @tf.kernel
+    def reordered_kernel(M, N, K, OutBuf, InA, InB):
+        pid_m = tf.program_id(0)
+        pid_n = tf.program_id(1)
+        offs_m = pid_m * 16 + tf.arange(0, 16)
+        offs_n = pid_n * 16 + tf.arange(0, 16)
+        acc = tf.zeros((16, 16), "f32")
+        for k in tf.range(0, K):
+            a = tf.load(InA, (offs_m, k))
+            b = tf.load(InB, (k, offs_n))
+            acc = acc + tf.dot(a, b)
+        tf.store(OutBuf, (offs_m, offs_n), acc)
+
+    compiler = Compiler(optimize=True, backend="metal")
+    arg_types = [I32, I32, I32, PointerType(F32), PointerType(F32), PointerType(F32)]
+    result = compiler.compile(reordered_kernel, arg_types)
+
+    import numpy as np
+    M, N, K = 16, 16, 16
+    np.random.seed(42)
+    A_np = np.random.randn(M, K).astype(np.float32)
+    B_np = np.random.randn(K, N).astype(np.float32)
+    C_np = np.zeros((M, N), dtype=np.float32)
+
+    expected = np.matmul(A_np, B_np)
+    grid_m = (M + 15) // 16
+    grid_n = (N + 15) // 16
+
+    result.launch(grid=(grid_n, grid_m), args=[M, N, K, C_np, A_np, B_np])
+    np.testing.assert_allclose(C_np, expected, rtol=1e-4, atol=1e-4)
