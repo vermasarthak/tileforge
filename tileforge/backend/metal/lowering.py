@@ -218,10 +218,10 @@ class HLToGPULowering:
             # Check if this function is a 2D matrix kernel (has DOT operation)
             has_dot = any(o.op_type == HLOpType.DOT for b in hl_func.blocks for o in b.operations)
             if has_dot:
-                # Resolve dimension arguments M and N dynamically from non-pointer scalar parameters
-                scalar_args = [self.val_map[arg] for arg in hl_func.args if not isinstance(arg.type, PointerType)]
-                var_m = scalar_args[0] if len(scalar_args) > 0 else GPUValue("var_M", I32)
-                var_n = scalar_args[1] if len(scalar_args) > 1 else GPUValue("var_N", I32)
+                # Resolve dimension arguments M and N dynamically from integer scalar parameters (I32)
+                i32_scalar_args = [self.val_map[arg] for arg in hl_func.args if arg.type == I32]
+                var_m = i32_scalar_args[0] if len(i32_scalar_args) > 0 else GPUValue("var_M", I32)
+                var_n = i32_scalar_args[1] if len(i32_scalar_args) > 1 else GPUValue("var_N", I32)
 
                 gpu_block.append_operation(
                     GPUOperation(
@@ -292,11 +292,11 @@ class HLToGPULowering:
             ptr_a = traced_a
             ptr_b = traced_b
 
-            # Dynamically derive M, N, K scalar parameters from function signature non-pointer arguments
-            scalar_args = [self.val_map[arg] for arg in hl_func.args if not isinstance(arg.type, PointerType)]
-            m_val = scalar_args[0] if len(scalar_args) > 0 else None
-            n_val = scalar_args[1] if len(scalar_args) > 1 else None
-            k_val = scalar_args[2] if len(scalar_args) > 2 else None
+            # Dynamically derive M, N, K scalar dimension parameters from integer scalar arguments (I32)
+            i32_scalar_args = [self.val_map[arg] for arg in hl_func.args if arg.type == I32]
+            m_val = i32_scalar_args[0] if len(i32_scalar_args) > 0 else None
+            n_val = i32_scalar_args[1] if len(i32_scalar_args) > 1 else None
+            k_val = i32_scalar_args[2] if len(i32_scalar_args) > 2 else None
 
             bm = op.attributes.get("BM", 16)
             bn = op.attributes.get("BN", 16)
