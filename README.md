@@ -325,3 +325,5 @@ tileforge --help
 This project is licensed under the MIT License - see the [LICENSE](LICENSE) file for details.
 
 <!-- Architecture metric sync for tileforge -->
+
+<!-- Benchmark metric log for tileforge -->
