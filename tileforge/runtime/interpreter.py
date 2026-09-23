@@ -1,16 +1,17 @@
 """CPU Reference Interpreter for TileForge IR using NumPy arrays with multi-block CFG support."""
 
 from __future__ import annotations
-from typing import Dict, List, Tuple, Any, Optional
+
+from typing import Any, Dict, List, Optional, Tuple
+
 import numpy as np
 
-from tileforge.ir.module import Module
-from tileforge.ir.function import Function
-from tileforge.ir.block import Block
-from tileforge.ir.operation import Operation, OpType
-from tileforge.ir.value import Value
-from tileforge.ir.types import TensorType
 from tileforge.frontend.errors import InterpreterError
+from tileforge.ir.block import Block
+from tileforge.ir.function import Function
+from tileforge.ir.operation import Operation, OpType
+from tileforge.ir.types import TensorType
+from tileforge.ir.value import Value
 
 
 class CPUInterpreter:
@@ -74,7 +75,7 @@ class CPUInterpreter:
                     cond_val = env[op.operands[0]]
                     then_block = op.successors[0]
                     else_block = op.successors[1]
-                    
+
                     t_count = op.attributes.get("then_arg_count", 0)
                     e_count = op.attributes.get("else_arg_count", 0)
                     t_opnds = op.operands[1:1 + t_count]
@@ -194,7 +195,7 @@ class CPUInterpreter:
                     valid_2d = np.logical_and(grid_m0, grid_m1)
                     if mask is not None:
                         valid_2d = np.logical_and(valid_2d, mask)
-                    
+
                     res = np.zeros((len(o0), len(o1)), dtype=ptr.dtype)
                     idx0, idx1 = np.meshgrid(o0, o1, indexing="ij")
                     res[valid_2d] = ptr[idx0[valid_2d], idx1[valid_2d]]
@@ -253,7 +254,7 @@ class CPUInterpreter:
                     valid_2d = np.logical_and(grid_m0, grid_m1)
                     if mask is not None:
                         valid_2d = np.logical_and(valid_2d, mask)
-                    
+
                     idx0, idx1 = np.meshgrid(o0, o1, indexing="ij")
                     val_arr = np.broadcast_to(val, idx0.shape)
                     ptr[idx0[valid_2d], idx1[valid_2d]] = val_arr[valid_2d]

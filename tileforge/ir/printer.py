@@ -1,9 +1,10 @@
 """Deterministic textual IR printer for TileForge IR with block arguments and CFG branches."""
 
 from __future__ import annotations
-from tileforge.ir.module import Module
-from tileforge.ir.function import Function
+
 from tileforge.ir.block import Block
+from tileforge.ir.function import Function
+from tileforge.ir.module import Module
 from tileforge.ir.operation import Operation, OpType
 
 
@@ -28,7 +29,7 @@ class IRPrinter:
 
         for block in func.blocks:
             lines.append(self.print_block(block))
-        
+
         lines.append("}")
         return "\n".join(lines)
 
@@ -39,7 +40,7 @@ class IRPrinter:
             lines.append(f"^{block.name}({block_args_str}):")
         else:
             lines.append(f"^{block.name}:")
-        
+
         for op in block.operations:
             lines.append(f"{self.indent}{self.print_operation(op)}")
         return "\n".join(lines)
@@ -110,10 +111,10 @@ class IRPrinter:
             e_block = op.successors[1].name
             t_count = op.attributes.get("then_arg_count", 0)
             e_count = op.attributes.get("else_arg_count", 0)
-            
+
             t_opnds = op.operands[1:1 + t_count]
             e_opnds = op.operands[1 + t_count:1 + t_count + e_count]
-            
+
             t_args_str = f"({', '.join(o.name for o in t_opnds)})" if t_opnds else ""
             e_args_str = f"({', '.join(o.name for o in e_opnds)})" if e_opnds else ""
             return f"tf.cond_br {cond}, ^{t_block}{t_args_str}, ^{e_block}{e_args_str}"

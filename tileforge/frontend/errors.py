@@ -17,7 +17,7 @@ class TileForgeError(Exception):
             location_parts.append(str(self.line))
             if self.column is not None:
                 location_parts.append(str(self.column))
-        
+
         prefix = ":".join(location_parts)
         if prefix:
             return f"{prefix}: {self.message}"

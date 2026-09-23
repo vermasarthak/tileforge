@@ -1,12 +1,14 @@
 """Basic block representation for TileForge SSA IR with block arguments and CFG edges."""
 
 from __future__ import annotations
-from typing import List, Optional, Set, TYPE_CHECKING
+
+from typing import TYPE_CHECKING, List, Optional
+
 from tileforge.ir.value import Value
 
 if TYPE_CHECKING:
-    from tileforge.ir.operation import Operation
     from tileforge.ir.function import Function
+    from tileforge.ir.operation import Operation
 
 
 class Block:
@@ -19,6 +21,11 @@ class Block:
 
     def add_argument(self, arg: Value) -> None:
         self.args.append(arg)
+
+    def get_argument(self, index: int) -> Value:
+        if not (0 <= index < len(self.args)):
+            raise IndexError(f"Block argument index {index} out of bounds for block ^{self.name} (args: {len(self.args)})")
+        return self.args[index]
 
     def append_operation(self, op: Operation) -> None:
         op.parent_block = self

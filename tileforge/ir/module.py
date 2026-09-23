@@ -1,7 +1,9 @@
 """Module representation for TileForge SSA IR top-level container."""
 
 from __future__ import annotations
-from typing import List, Optional, Dict
+
+from typing import List, Optional
+
 from tileforge.ir.function import Function
 
 

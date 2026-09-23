@@ -1,9 +1,10 @@
 """Tiled matrix multiplication example in TileForge."""
 
 import numpy as np
+
 import tileforge as tf
 from tileforge.driver import Compiler
-from tileforge.ir.types import PointerType, F32, I32
+from tileforge.ir.types import F32, I32, PointerType
 
 
 @tf.kernel

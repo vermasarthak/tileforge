@@ -1,9 +1,10 @@
 import pytest
+
+import tileforge as tf
+from tileforge.frontend.errors import TypeCheckError, UndefinedSymbolError
 from tileforge.frontend.parser import Parser
 from tileforge.frontend.semantic import SemanticAnalyzer
-from tileforge.frontend.errors import TypeCheckError, UndefinedSymbolError
-from tileforge.ir.types import PointerType, F32, I32, TensorType
-import tileforge as tf
+from tileforge.ir.types import F32, I32, PointerType, TensorType
 
 
 def test_semantic_analysis_vector_add():
@@ -20,10 +21,10 @@ def test_semantic_analysis_vector_add():
     parser = Parser()
     kernel_ast = parser.parse_kernel(add)
     analyzer = SemanticAnalyzer()
-    
+
     arg_types = [PointerType(F32), PointerType(F32), PointerType(F32), I32]
     sym_table = analyzer.analyze(kernel_ast, arg_types)
-    
+
     c_sym = sym_table.lookup("c")
     assert isinstance(c_sym.type, TensorType)
     assert c_sym.type.element_type == F32

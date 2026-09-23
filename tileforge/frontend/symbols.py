@@ -1,9 +1,11 @@
 """Lexical symbol table and scope management for TileForge compiler."""
 
 from __future__ import annotations
-from typing import Dict, Optional, Any
+
+from typing import Dict, Optional
+
+from tileforge.frontend.errors import TypeCheckError, UndefinedSymbolError
 from tileforge.ir.types import Type
-from tileforge.frontend.errors import UndefinedSymbolError, TypeCheckError
 
 
 class Symbol:

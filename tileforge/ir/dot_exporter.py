@@ -1,7 +1,7 @@
 """Graphviz .dot export utility for TileForge CFG visualization."""
 
 from __future__ import annotations
-from tileforge.ir.module import Module
+
 from tileforge.ir.function import Function
 from tileforge.ir.printer import IRPrinter
 

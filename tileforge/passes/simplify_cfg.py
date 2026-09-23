@@ -1,10 +1,12 @@
 """SimplifyCFGPass: Folds constant branches and eliminates unreachable basic blocks."""
 
 from __future__ import annotations
-from typing import Set, List, Optional
+
+from typing import List, Set
+
+from tileforge.ir.block import Block
 from tileforge.ir.module import Module
 from tileforge.ir.operation import Operation, OpType
-from tileforge.ir.block import Block
 from tileforge.passes.manager import Pass
 
 
@@ -25,7 +27,7 @@ class SimplifyCFGPass(Pass):
                             else_block = term.successors[1]
                             t_count = term.attributes.get("then_arg_count", 0)
                             e_count = term.attributes.get("else_arg_count", 0)
-                            
+
                             t_args = term.operands[1:1 + t_count]
                             e_args = term.operands[1 + t_count:1 + t_count + e_count]
 

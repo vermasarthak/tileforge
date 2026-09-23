@@ -1,24 +1,26 @@
 """Lowering pass: High-Level TileForge SSA IR -> GPU Backend IR."""
 
 from __future__ import annotations
-from typing import Dict, List, Optional
-from tileforge.ir.module import Module as HLModule
-from tileforge.ir.function import Function as HLFunction
-from tileforge.ir.block import Block as HLBlock
-from tileforge.ir.operation import Operation as HLOperation, OpType as HLOpType
-from tileforge.ir.value import Value as HLValue
-from tileforge.ir.types import Type, PointerType, TensorType, PrimitiveType, I32, I1, F32, VOID
+
+from typing import Dict, List, Set
 
 from tileforge.backend.metal.ir import (
-    GPUModule,
-    GPUFunction,
+    AddressSpace,
     GPUBlock,
+    GPUFunction,
+    GPUKernelArg,
+    GPUModule,
     GPUOperation,
     GPUOpType,
     GPUValue,
-    GPUKernelArg,
-    AddressSpace,
 )
+from tileforge.ir.block import Block as HLBlock
+from tileforge.ir.function import Function as HLFunction
+from tileforge.ir.module import Module as HLModule
+from tileforge.ir.operation import Operation as HLOperation
+from tileforge.ir.operation import OpType as HLOpType
+from tileforge.ir.types import I1, I32, PointerType, TensorType
+from tileforge.ir.value import Value as HLValue
 
 
 class HLToGPULowering:
@@ -27,6 +29,8 @@ class HLToGPULowering:
     def __init__(self):
         self.val_map: Dict[HLValue, GPUValue] = {}
         self.block_map: Dict[HLBlock, GPUBlock] = {}
+        self.val_axis: Dict[HLValue, int] = {}
+        self.arange_ops: Set[HLValue] = set()
         self.var_count = 0
 
     def new_var_name(self, prefix: str = "g") -> str:
@@ -41,6 +45,8 @@ class HLToGPULowering:
         return gpu_mod
 
     def lower_function(self, hl_func: HLFunction) -> GPUFunction:
+        self.arange_ops.clear()
+        self.val_axis.clear()
         gpu_args: List[GPUKernelArg] = []
         for arg in hl_func.args:
             addr_space = AddressSpace.GLOBAL if isinstance(arg.type, PointerType) else AddressSpace.CONSTANT
@@ -96,6 +102,7 @@ class HLToGPULowering:
             axis = op.attributes.get("axis", 0)
             res_val = GPUValue(self.new_var_name("pid"), I32)
             self.val_map[op.results[0]] = res_val
+            self.val_axis[op.results[0]] = axis
             gpu_block.append_operation(
                 GPUOperation(
                     GPUOpType.PROGRAM_ID,
@@ -122,40 +129,63 @@ class HLToGPULowering:
 
         elif op.op_type == HLOpType.ARANGE:
             hl_res = op.results[0]
-            start = op.attributes.get("start", 0)
-            end = op.attributes.get("end", 256)
-            
-            tid_val = GPUValue(self.new_var_name("tid"), I32)
-            gpu_block.append_operation(
-                GPUOperation(GPUOpType.THREAD_ID, operands=[], results=[tid_val], attributes={"axis": 0})
-            )
-            
-            if start != 0:
-                c_start = GPUValue(self.new_var_name("c_start"), I32)
-                gpu_block.append_operation(GPUOperation(GPUOpType.CONSTANT, results=[c_start], attributes={"value": start}))
-                offs_val = GPUValue(self.new_var_name("offs"), I32)
-                gpu_block.append_operation(GPUOperation(GPUOpType.ADD, operands=[tid_val, c_start], results=[offs_val]))
-                self.val_map[hl_res] = offs_val
-            else:
-                self.val_map[hl_res] = tid_val
+            self.arange_ops.add(hl_res)
+            has_dot = any(o.op_type == HLOpType.DOT for b in hl_func.blocks for o in b.operations)
+            if not has_dot:
+                start = op.attributes.get("start", 0)
+                tid_val = GPUValue(self.new_var_name("tid"), I32)
+                gpu_block.append_operation(
+                    GPUOperation(GPUOpType.THREAD_ID, operands=[], results=[tid_val], attributes={"axis": 0})
+                )
+                if start != 0:
+                    c_start = GPUValue(self.new_var_name("c_start"), I32)
+                    gpu_block.append_operation(GPUOperation(GPUOpType.CONSTANT, results=[c_start], attributes={"value": start}))
+                    offs_val = GPUValue(self.new_var_name("offs"), I32)
+                    gpu_block.append_operation(GPUOperation(GPUOpType.ADD, operands=[tid_val, c_start], results=[offs_val]))
+                    self.val_map[hl_res] = offs_val
+                else:
+                    self.val_map[hl_res] = tid_val
 
         elif op.op_type in {HLOpType.ADD, HLOpType.SUB, HLOpType.MUL, HLOpType.DIV}:
-            lhs = self.val_map[op.operands[0]]
-            rhs = self.val_map[op.operands[1]]
+            lhs = op.operands[0]
+            rhs = op.operands[1]
             hl_res = op.results[0]
-            res_type = hl_res.type.element_type if isinstance(hl_res.type, TensorType) else hl_res.type
-            res_val = GPUValue(self.new_var_name("v"), res_type)
-            self.val_map[hl_res] = res_val
 
-            gpu_op_map = {
-                HLOpType.ADD: GPUOpType.ADD,
-                HLOpType.SUB: GPUOpType.SUB,
-                HLOpType.MUL: GPUOpType.MUL,
-                HLOpType.DIV: GPUOpType.DIV,
-            }
-            gpu_block.append_operation(
-                GPUOperation(gpu_op_map[op.op_type], operands=[lhs, rhs], results=[res_val])
-            )
+            has_dot = any(o.op_type == HLOpType.DOT for b in hl_func.blocks for o in b.operations)
+            if has_dot and op.op_type == HLOpType.ADD and (lhs in self.arange_ops or rhs in self.arange_ops):
+                base = lhs if rhs in self.arange_ops else rhs
+                ax = self.val_axis.get(base, 0)
+                tid_op = GPUOpType.THREAD_ID_Y if ax == 0 else GPUOpType.THREAD_ID_X
+
+                tid_val = GPUValue(self.new_var_name("tid"), I32)
+                gpu_block.append_operation(
+                    GPUOperation(tid_op, operands=[], results=[tid_val], attributes={"axis": 0})
+                )
+                res_type = hl_res.type.element_type if isinstance(hl_res.type, TensorType) else hl_res.type
+                res_val = GPUValue(self.new_var_name("v"), res_type)
+                self.val_map[hl_res] = res_val
+                self.val_axis[hl_res] = ax
+                gpu_block.append_operation(
+                    GPUOperation(GPUOpType.ADD, operands=[self.val_map[base], tid_val], results=[res_val])
+                )
+            else:
+                l_gpu = self.val_map[lhs]
+                r_gpu = self.val_map[rhs]
+                res_type = hl_res.type.element_type if isinstance(hl_res.type, TensorType) else hl_res.type
+                res_val = GPUValue(self.new_var_name("v"), res_type)
+                self.val_map[hl_res] = res_val
+                if lhs in self.val_axis: self.val_axis[hl_res] = self.val_axis[lhs]
+                elif rhs in self.val_axis: self.val_axis[hl_res] = self.val_axis[rhs]
+
+                gpu_op_map = {
+                    HLOpType.ADD: GPUOpType.ADD,
+                    HLOpType.SUB: GPUOpType.SUB,
+                    HLOpType.MUL: GPUOpType.MUL,
+                    HLOpType.DIV: GPUOpType.DIV,
+                }
+                gpu_block.append_operation(
+                    GPUOperation(gpu_op_map[op.op_type], operands=[l_gpu, r_gpu], results=[res_val])
+                )
 
         elif op.op_type == HLOpType.CMP:
             lhs = self.val_map[op.operands[0]]
@@ -188,60 +218,88 @@ class HLToGPULowering:
 
         elif op.op_type == HLOpType.LOAD:
             ptr = self.val_map[op.operands[0]]
-            offs = self.val_map[op.operands[1]]
-            mask = self.val_map[op.operands[2]] if len(op.operands) > 2 else None
-            
+            has_dot = any(o.op_type == HLOpType.DOT for b in hl_func.blocks for o in b.operations)
+
             hl_res = op.results[0]
             res_type = hl_res.type.element_type if isinstance(hl_res.type, TensorType) else hl_res.type
             res_val = GPUValue(self.new_var_name("ld"), res_type)
             self.val_map[hl_res] = res_val
 
-            operands = [ptr, offs]
-            if mask:
-                operands.append(mask)
+            if has_dot and len(op.operands) >= 3:
+                off1 = self.val_map[op.operands[1]]
+                off2 = self.val_map[op.operands[2]]
 
-            gpu_block.append_operation(
-                GPUOperation(
-                    GPUOpType.GLOBAL_LOAD,
-                    operands=operands,
-                    results=[res_val],
-                    attributes={"has_mask": mask is not None},
+                i32_scalar_args = [self.val_map[arg] for arg in hl_func.args if arg.type == I32]
+                var_m = i32_scalar_args[0] if len(i32_scalar_args) > 0 else GPUValue("var_M", I32)
+                var_n = i32_scalar_args[1] if len(i32_scalar_args) > 1 else GPUValue("var_N", I32)
+                var_k = i32_scalar_args[2] if len(i32_scalar_args) > 2 else GPUValue("var_K", I32)
+
+                is_off1_k = any(op.operands[1] in b.args for b in hl_func.blocks)
+                if is_off1_k:
+                    row_max, col_max, stride = var_k, var_n, var_n
+                else:
+                    row_max, col_max, stride = var_m, var_k, var_k
+
+                mul_val = GPUValue(self.new_var_name("mul"), I32)
+                gpu_block.append_operation(GPUOperation(GPUOpType.MUL, operands=[off1, stride], results=[mul_val]))
+                idx_val = GPUValue(self.new_var_name("idx"), I32)
+                gpu_block.append_operation(GPUOperation(GPUOpType.ADD, operands=[mul_val, off2], results=[idx_val]))
+
+                c1 = GPUValue(self.new_var_name("c1"), I1)
+                gpu_block.append_operation(GPUOperation(GPUOpType.CMP, operands=[off1, row_max], results=[c1], attributes={"predicate": "lt"}))
+                c2 = GPUValue(self.new_var_name("c2"), I1)
+                gpu_block.append_operation(GPUOperation(GPUOpType.CMP, operands=[off2, col_max], results=[c2], attributes={"predicate": "lt"}))
+                mask_val = GPUValue(self.new_var_name("mask"), I1)
+                gpu_block.append_operation(GPUOperation(GPUOpType.MUL, operands=[c1, c2], results=[mask_val]))
+
+                gpu_block.append_operation(
+                    GPUOperation(GPUOpType.GLOBAL_LOAD, operands=[ptr, idx_val, mask_val], results=[res_val], attributes={"has_mask": True})
                 )
-            )
+            else:
+                offs = self.val_map[op.operands[1]]
+                mask = self.val_map[op.operands[2]] if len(op.operands) > 2 else None
+                operands = [ptr, offs]
+                if mask: operands.append(mask)
+                gpu_block.append_operation(
+                    GPUOperation(GPUOpType.GLOBAL_LOAD, operands=operands, results=[res_val], attributes={"has_mask": mask is not None})
+                )
 
         elif op.op_type == HLOpType.STORE:
             ptr = self.val_map[op.operands[0]]
-            offs = self.val_map[op.operands[1]]
-            val = self.val_map[op.operands[2]]
-            mask = self.val_map[op.operands[3]] if len(op.operands) > 3 else None
+            has_mask = op.attributes.get("has_mask", False)
+            val = self.val_map[op.operands[-2 if has_mask else -1]]
 
-            # Check if this function is a 2D matrix kernel (has DOT operation)
             has_dot = any(o.op_type == HLOpType.DOT for b in hl_func.blocks for o in b.operations)
-            if has_dot:
-                # Resolve dimension arguments M and N dynamically from integer scalar parameters (I32)
+            if has_dot and len(op.operands) >= 4:
+                row_off = self.val_map[op.operands[1]]
+                col_off = self.val_map[op.operands[2]]
+
                 i32_scalar_args = [self.val_map[arg] for arg in hl_func.args if arg.type == I32]
                 var_m = i32_scalar_args[0] if len(i32_scalar_args) > 0 else GPUValue("var_M", I32)
                 var_n = i32_scalar_args[1] if len(i32_scalar_args) > 1 else GPUValue("var_N", I32)
 
-                gpu_block.append_operation(
-                    GPUOperation(
-                        GPUOpType.TILED_STORE,
-                        operands=[ptr, val, var_m, var_n],
-                        results=[],
-                    )
-                )
-            else:
-                operands = [ptr, offs, val]
-                if mask:
-                    operands.append(mask)
+                mul_val = GPUValue(self.new_var_name("mul"), I32)
+                gpu_block.append_operation(GPUOperation(GPUOpType.MUL, operands=[row_off, var_n], results=[mul_val]))
+                idx_val = GPUValue(self.new_var_name("idx"), I32)
+                gpu_block.append_operation(GPUOperation(GPUOpType.ADD, operands=[mul_val, col_off], results=[idx_val]))
+
+                c1 = GPUValue(self.new_var_name("c1"), I1)
+                gpu_block.append_operation(GPUOperation(GPUOpType.CMP, operands=[row_off, var_m], results=[c1], attributes={"predicate": "lt"}))
+                c2 = GPUValue(self.new_var_name("c2"), I1)
+                gpu_block.append_operation(GPUOperation(GPUOpType.CMP, operands=[col_off, var_n], results=[c2], attributes={"predicate": "lt"}))
+                mask_val = GPUValue(self.new_var_name("mask"), I1)
+                gpu_block.append_operation(GPUOperation(GPUOpType.MUL, operands=[c1, c2], results=[mask_val]))
 
                 gpu_block.append_operation(
-                    GPUOperation(
-                        GPUOpType.GLOBAL_STORE,
-                        operands=operands,
-                        results=[],
-                        attributes={"has_mask": mask is not None},
-                    )
+                    GPUOperation(GPUOpType.GLOBAL_STORE, operands=[ptr, idx_val, val, mask_val], results=[], attributes={"has_mask": True})
+                )
+            else:
+                offs = self.val_map[op.operands[1]]
+                mask = self.val_map[op.operands[-1]] if has_mask else None
+                operands = [ptr, offs, val]
+                if mask: operands.append(mask)
+                gpu_block.append_operation(
+                    GPUOperation(GPUOpType.GLOBAL_STORE, operands=operands, results=[], attributes={"has_mask": mask is not None})
                 )
 
         elif op.op_type in {HLOpType.REDUCE_SUM, HLOpType.REDUCE_MAX}:
@@ -259,61 +317,10 @@ class HLToGPULowering:
             a_val = self.val_map[op.operands[0]]
             b_val = self.val_map[op.operands[1]]
             hl_res = op.results[0]
-            res_val = GPUValue(self.new_var_name("tiled_dot"), hl_res.type)
+            res_val = GPUValue(self.new_var_name("dot"), hl_res.type)
             self.val_map[hl_res] = res_val
-
-            # Trace DOT operands (a_val, b_val) back through SSA LOAD operations to get true matrix buffer pointers
-            def trace_load_ptr(val_target: HLValue) -> Optional[GPUValue]:
-                for b in hl_func.blocks:
-                    for o in b.operations:
-                        if o.op_type == HLOpType.LOAD and len(o.results) > 0:
-                            if o.results[0] == val_target:
-                                return self.val_map[o.operands[0]]
-                # Handle block arguments (e.g. from loop header)
-                for b in hl_func.blocks:
-                    if val_target in b.args:
-                        arg_i = b.args.index(val_target)
-                        for pred_b in hl_func.blocks:
-                            for o in pred_b.operations:
-                                if o.op_type == HLOpType.BR and len(o.operands) > arg_i:
-                                    res_ptr = trace_load_ptr(o.operands[arg_i])
-                                    if res_ptr:
-                                        return res_ptr
-                return None
-
-            traced_a = trace_load_ptr(op.operands[0])
-            traced_b = trace_load_ptr(op.operands[1])
-
-            if traced_a is None or traced_b is None:
-                raise RuntimeError(
-                    f"Backend Lowering Error: Unable to trace matrix source pointers for tf.dot operands {op.operands[0]} and {op.operands[1]}"
-                )
-
-            ptr_a = traced_a
-            ptr_b = traced_b
-
-            # Dynamically derive M, N, K scalar dimension parameters from integer scalar arguments (I32)
-            i32_scalar_args = [self.val_map[arg] for arg in hl_func.args if arg.type == I32]
-            m_val = i32_scalar_args[0] if len(i32_scalar_args) > 0 else None
-            n_val = i32_scalar_args[1] if len(i32_scalar_args) > 1 else None
-            k_val = i32_scalar_args[2] if len(i32_scalar_args) > 2 else None
-
-            bm = op.attributes.get("BM", 16)
-            bn = op.attributes.get("BN", 16)
-            bk = op.attributes.get("BK", 16)
-
-            dot_operands = [ptr_a, ptr_b]
-            if m_val: dot_operands.append(m_val)
-            if n_val: dot_operands.append(n_val)
-            if k_val: dot_operands.append(k_val)
-
             gpu_block.append_operation(
-                GPUOperation(
-                    GPUOpType.TILED_DOT,
-                    operands=dot_operands,
-                    results=[res_val],
-                    attributes={"BM": bm, "BN": bn, "BK": bk},
-                )
+                GPUOperation(GPUOpType.DOT, operands=[a_val, b_val], results=[res_val])
             )
 
         elif op.op_type == HLOpType.BR:

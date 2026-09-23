@@ -1,11 +1,12 @@
 """Operation representation and traits for TileForge SSA IR."""
 
 from __future__ import annotations
-from typing import List, Dict, Any, Optional, TYPE_CHECKING
+
+from typing import TYPE_CHECKING, Any, Dict, List, Optional
 
 if TYPE_CHECKING:
-    from tileforge.ir.value import Value
     from tileforge.ir.block import Block
+    from tileforge.ir.value import Value
 
 
 class OpType:
@@ -100,6 +101,9 @@ class Operation:
 
     def erase(self) -> None:
         """Remove this operation from its parent block and unregister uses."""
+        for res in self.results:
+            if res.is_used():
+                raise RuntimeError(f"Cannot erase operation {self.op_type} whose result {res.name} still has active uses")
         for idx, opnd in enumerate(self.operands):
             opnd.remove_use(self, idx)
         if self.parent_block is not None:
@@ -111,7 +115,7 @@ class Operation:
         results_str = ", ".join(r.name for r in self.results)
         operands_str = ", ".join(o.name for o in self.operands)
         attrs_str = ", ".join(f"{k}={v}" for k, v in self.attributes.items())
-        
+
         res_part = f"{results_str} = " if results_str else ""
         attr_part = f" {{{attrs_str}}}" if attrs_str else ""
         return f"{res_part}{self.op_type}({operands_str}){attr_part}"

@@ -1,7 +1,8 @@
 """Deterministic Printer for GPU Backend IR."""
 
 from __future__ import annotations
-from tileforge.backend.metal.ir import GPUModule, GPUFunction, GPUBlock, GPUOperation, GPUKernelArg
+
+from tileforge.backend.metal.ir import GPUFunction, GPUModule, GPUOperation
 
 
 class GPUIRPrinter:
@@ -14,7 +15,7 @@ class GPUIRPrinter:
         return "\n\n".join(lines)
 
     def print_function(self, func: GPUFunction) -> str:
-        args_formatted = ", ".join(f"%{a.name}: {a.address_space.value} {a.type}" for a in func.args)
+        args_formatted = ", ".join(f"%{a.name}: {getattr(a.address_space, 'value', a.address_space)} {a.type}" for a in func.args)
         lines = [f"gpu.kernel @{func.name}({args_formatted}) {{"]
 
         for block in func.blocks:

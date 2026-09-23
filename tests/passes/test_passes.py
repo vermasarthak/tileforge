@@ -1,10 +1,5 @@
-import pytest
-from tileforge.ir import (
-    Module, Function, Value, IRBuilder, IRPrinter, I32, F32, PointerType, VOID
-)
-from tileforge.passes import (
-    PassManager, ConstantFoldPass, AlgebraicSimplifyPass, DeadCodeEliminationPass, CSEPass
-)
+from tileforge.ir import I32, VOID, Function, IRBuilder, IRPrinter, Module, Value
+from tileforge.passes import AlgebraicSimplifyPass, ConstantFoldPass, CSEPass, DeadCodeEliminationPass, PassManager
 
 
 def test_constant_folding():

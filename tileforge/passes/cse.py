@@ -1,7 +1,9 @@
 """Common Subexpression Elimination (CSE) pass for TileForge IR."""
 
 from __future__ import annotations
-from typing import Dict, Tuple, Any
+
+from typing import Any, Dict, Tuple
+
 from tileforge.ir.module import Module
 from tileforge.ir.operation import Operation, OpType
 from tileforge.passes.manager import Pass
@@ -32,8 +34,10 @@ class CSEPass(Pass):
         return modified
 
     def _make_op_key(self, op: Operation) -> Tuple[str, Tuple[str, ...], Tuple[Tuple[str, Any], ...], Tuple[str, ...]]:
-        opnd_names = tuple(o.name for o in op.operands)
+        opnd_names = [o.name for o in op.operands]
+        if op.op_type in {OpType.ADD, OpType.MUL, OpType.LOGICAL_AND, OpType.LOGICAL_OR} and len(opnd_names) == 2:
+            opnd_names.sort()
         res_types = tuple(str(r.type) for r in op.results)
         # Sort attributes for canonical dict equality key
         attr_pairs = tuple(sorted((k, repr(v)) for k, v in op.attributes.items()))
-        return (op.op_type, opnd_names, attr_pairs, res_types)
+        return (op.op_type, tuple(opnd_names), attr_pairs, res_types)

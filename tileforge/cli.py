@@ -1,15 +1,12 @@
 """Command Line Interface (CLI) for TileForge compiler."""
 
-import sys
 import argparse
 import importlib.util
+import sys
 from pathlib import Path
 
-from tileforge.frontend.parser import Parser
-from tileforge.frontend.semantic import SemanticAnalyzer
-from tileforge.lowering.ast_to_ir import ASTToLowering
-from tileforge.ir.types import PointerType, F32, I32
 from tileforge.driver import Compiler
+from tileforge.ir.types import F32, I32, PointerType
 
 
 def main() -> None:
@@ -51,7 +48,7 @@ def main() -> None:
             print(res.ir_before_optimization)
             print("\n--- OPTIMIZED IR ---")
             print(res.ir_after_optimization)
-            
+
             if res.backend_ir:
                 print("\n--- GPU BACKEND IR ---")
                 print(res.backend_ir)

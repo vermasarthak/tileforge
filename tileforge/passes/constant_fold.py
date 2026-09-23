@@ -1,10 +1,12 @@
 """Constant Folding optimization pass for TileForge IR."""
 
 from __future__ import annotations
-from typing import Optional, Any
+
+from typing import Any, Optional
+
+from tileforge.ir.builder import IRBuilder
 from tileforge.ir.module import Module
 from tileforge.ir.operation import Operation, OpType
-from tileforge.ir.builder import IRBuilder
 from tileforge.ir.value import Value
 from tileforge.passes.manager import Pass
 
@@ -44,17 +46,17 @@ class ConstantFoldPass(Pass):
                 elif op.op_type == OpType.MUL:
                     val = c0 * c1
                 elif op.op_type == OpType.DIV:
-                    if c1 == 0:
+                    if c1 == 0 or c1 == 0.0:
                         return None
                     val = c0 // c1 if isinstance(c0, int) and isinstance(c1, int) else c0 / c1
                 else:
                     return None
-                
+
                 # Create constant before op
                 builder._value_counter = int(op.results[0].name.lstrip("%")) if op.results[0].name.lstrip("%").isdigit() else builder._value_counter
                 new_const = builder.create_constant(val, res_type)
                 # Move created op before target op
-                created_op = block_last_op = builder.block.operations.pop()
+                created_op = builder.block.operations.pop()
                 idx = builder.block.operations.index(op)
                 builder.block.operations.insert(idx, created_op)
                 return new_const
@@ -78,7 +80,7 @@ class ConstantFoldPass(Pass):
                     res_bool = c0 == c1
                 elif pred == "ne":
                     res_bool = c0 != c1
-                
+
                 new_const = builder.create_constant(res_bool, res_type)
                 created_op = builder.block.operations.pop()
                 idx = builder.block.operations.index(op)

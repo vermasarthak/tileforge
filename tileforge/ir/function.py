@@ -1,13 +1,15 @@
 """Function representation for TileForge SSA IR."""
 
 from __future__ import annotations
-from typing import List, Optional, TYPE_CHECKING
+
+from typing import TYPE_CHECKING, List, Optional
+
 from tileforge.ir.block import Block
 
 if TYPE_CHECKING:
-    from tileforge.ir.value import Value
-    from tileforge.ir.types import Type
     from tileforge.ir.module import Module
+    from tileforge.ir.types import Type
+    from tileforge.ir.value import Value
 
 
 class Function:
@@ -24,7 +26,7 @@ class Function:
         self.return_type: Type = return_type
         self.blocks: List[Block] = []
         self.parent_module: Optional[Module] = parent_module
-        
+
         # Create default entry block
         entry_block = Block(name="entry", parent_function=self)
         self.blocks.append(entry_block)

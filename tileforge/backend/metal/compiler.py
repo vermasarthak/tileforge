@@ -1,17 +1,19 @@
 """Metal Backend Compiler and Execution Pipeline Manager with Caching."""
 
 from __future__ import annotations
+
 import hashlib
 import os
-from typing import Any, Dict, List, Tuple, Optional
+from typing import Any, Dict, List, Optional, Tuple
+
 from tileforge.backend.base import Backend, CompiledKernel
-from tileforge.ir.module import Module as HLModule
+from tileforge.backend.metal.codegen import MSLCodeGenerator
 from tileforge.backend.metal.ir import GPUModule
 from tileforge.backend.metal.lowering import HLToGPULowering
-from tileforge.backend.metal.verifier import GPUIRVerifier
 from tileforge.backend.metal.printer import GPUIRPrinter
-from tileforge.backend.metal.codegen import MSLCodeGenerator
 from tileforge.backend.metal.runtime import MetalRuntime
+from tileforge.backend.metal.verifier import GPUIRVerifier
+from tileforge.ir.module import Module as HLModule
 
 
 class MetalCompiledKernel(CompiledKernel):

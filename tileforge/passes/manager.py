@@ -1,7 +1,9 @@
 """Pass infrastructure for TileForge IR optimizations."""
 
 from __future__ import annotations
+
 from typing import List
+
 from tileforge.ir.module import Module
 from tileforge.ir.verifier import IRVerifier
 

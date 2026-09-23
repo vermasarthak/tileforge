@@ -1,32 +1,33 @@
 """Tiled GEMM Benchmark Suite for TileForge Apple Metal GPU vs NumPy CPU."""
 
 from __future__ import annotations
-import time
+
+import ctypes
+import json
 import os
 import sys
-import json
-import platform
-import ctypes
+import time
+
 import numpy as np
 
 sys.path.insert(0, os.path.abspath(os.path.join(os.path.dirname(__file__), '..')))
 
 import tileforge as tf
-from tileforge.driver import Compiler
-from tileforge.ir.types import PointerType, F32, I32
 from tileforge.backend.metal.runtime import (
-    MetalDevice,
     MetalBuffer,
+    MetalDevice,
+    MTLSize,
+    get_sel,
+    libobjc,
+    msg_send_dispatch,
     msg_send_id,
-    msg_send_void,
-    msg_send_void_id,
     msg_send_set_buffer,
     msg_send_set_bytes,
-    msg_send_dispatch,
-    get_sel,
-    MTLSize,
-    libobjc,
+    msg_send_void,
+    msg_send_void_id,
 )
+from tileforge.driver import Compiler
+from tileforge.ir.types import F32, I32, PointerType
 
 msg_send_double = ctypes.CFUNCTYPE(ctypes.c_double, ctypes.c_void_p, ctypes.c_void_p)(("objc_msgSend", libobjc))
 
@@ -61,12 +62,12 @@ def benchmark_matmul(M: int, N: int, K: int, trials: int = 50, warmups: int = 10
 
     # 1. NumPy CPU execution timing
     for _ in range(warmups):
-        expected = A_np @ B_np
+        A_np @ B_np
 
     cpu_times = []
     for _ in range(trials):
         t0 = time.perf_counter()
-        expected = A_np @ B_np
+        A_np @ B_np
         t1 = time.perf_counter()
         cpu_times.append((t1 - t0) * 1000.0)
 
@@ -148,7 +149,7 @@ def run_suite():
     os.makedirs("benchmarks/results", exist_ok=True)
     dev = MetalDevice()
     print(f"Running Tiled GEMM Benchmark Suite on {dev.get_name()}...")
-    
+
     results = []
     for dim in [64, 128, 256, 512]:
         print(f"  Measuring {dim}x{dim} @ {dim}x{dim}...")

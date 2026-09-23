@@ -1,26 +1,29 @@
 """TileForge: An original tensor-kernel compiler built from scratch."""
 
-from tileforge.language.decorators import kernel
+from tileforge.autotune import Config, autotune
 from tileforge.language.builtins import (
-    program_id,
     arange,
-    range,
+    broadcast_to,
+    dot,
+    expand_dims,
     load,
-    store,
-    zeros,
-    where,
     logical_and,
     logical_or,
-    sum,
     max,
-    dot,
+    program_id,
+    range,
     reshape,
-    expand_dims,
-    broadcast_to,
+    store,
+    sum,
+    where,
+    zeros,
 )
+from tileforge.language.decorators import kernel
 
 __all__ = [
     "kernel",
+    "autotune",
+    "Config",
     "program_id",
     "arange",
     "range",

@@ -1,25 +1,26 @@
 """Public Compiler Driver API for TileForge."""
 
 from __future__ import annotations
+
 from dataclasses import dataclass
-from typing import Callable, List, Tuple, Any, Union
+from typing import Any, Callable, List, Optional, Tuple, Union
 
 from tileforge.frontend.parser import Parser
 from tileforge.frontend.semantic import SemanticAnalyzer
-from tileforge.lowering.ast_to_ir import ASTToLowering
-from tileforge.ir.types import Type
-from tileforge.ir.module import Module
-from tileforge.ir.function import Function
-from tileforge.ir.printer import IRPrinter
 from tileforge.ir.dot_exporter import export_cfg_dot
-from tileforge.passes.manager import PassManager
-from tileforge.passes.constant_fold import ConstantFoldPass
+from tileforge.ir.function import Function
+from tileforge.ir.module import Module
+from tileforge.ir.printer import IRPrinter
+from tileforge.ir.types import Type
+from tileforge.language.decorators import KernelFunction
+from tileforge.lowering.ast_to_ir import ASTToLowering
 from tileforge.passes.algebraic import AlgebraicSimplifyPass
-from tileforge.passes.dce import DeadCodeEliminationPass
+from tileforge.passes.constant_fold import ConstantFoldPass
 from tileforge.passes.cse import CSEPass
+from tileforge.passes.dce import DeadCodeEliminationPass
+from tileforge.passes.manager import PassManager
 from tileforge.passes.simplify_cfg import SimplifyCFGPass
 from tileforge.runtime.interpreter import CPUInterpreter
-from tileforge.language.decorators import KernelFunction
 
 
 @dataclass

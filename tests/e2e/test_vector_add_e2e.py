@@ -1,8 +1,9 @@
 import numpy as np
 import pytest
+
 import tileforge as tf
 from tileforge.driver import Compiler
-from tileforge.ir.types import PointerType, F32, I32
+from tileforge.ir.types import F32, I32, PointerType
 
 
 @tf.kernel
@@ -20,7 +21,7 @@ def add_kernel(x, y, out, n):
 def test_vector_add_e2e(N):
     compiler = Compiler(optimize=True)
     arg_types = [PointerType(F32), PointerType(F32), PointerType(F32), I32]
-    
+
     result = compiler.compile(add_kernel, arg_types)
 
     x_np = np.random.randn(N).astype(np.float32)

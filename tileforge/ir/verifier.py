@@ -1,15 +1,16 @@
 """Rigorous IR Verifier for TileForge SSA IR and CFG invariant checking."""
 
 from __future__ import annotations
+
 from typing import Set
+
 from tileforge.frontend.errors import IRVerificationError
-from tileforge.ir.module import Module
-from tileforge.ir.function import Function
-from tileforge.ir.block import Block
-from tileforge.ir.operation import Operation, OpType
-from tileforge.ir.value import Value
-from tileforge.ir.types import PointerType, TensorType, VoidType, I1, I32
 from tileforge.ir.dominance import DominanceInfo
+from tileforge.ir.function import Function
+from tileforge.ir.module import Module
+from tileforge.ir.operation import Operation, OpType
+from tileforge.ir.types import I1, I32, PointerType, TensorType
+from tileforge.ir.value import Value
 
 
 class IRVerifier:
@@ -171,7 +172,7 @@ class IRVerifier:
 
             t_count = op.attributes.get("then_arg_count", 0)
             e_count = op.attributes.get("else_arg_count", 0)
-            
+
             t_opnds = op.operands[1:1 + t_count]
             e_opnds = op.operands[1 + t_count:1 + t_count + e_count]
 

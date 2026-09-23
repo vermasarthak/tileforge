@@ -1,10 +1,11 @@
 """Backend abstraction interface for TileForge compilers."""
 
 from __future__ import annotations
+
 from abc import ABC, abstractmethod
-from typing import Any, Dict, List, Tuple
+from typing import Any, List, Tuple
+
 from tileforge.ir.module import Module
-from tileforge.ir.function import Function
 
 
 class CompiledKernel(ABC):

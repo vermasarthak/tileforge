@@ -1,9 +1,10 @@
 """Reduction operations example in TileForge (tf.sum and tf.max)."""
 
 import numpy as np
+
 import tileforge as tf
 from tileforge.driver import Compiler
-from tileforge.ir.types import PointerType, F32, I32
+from tileforge.ir.types import F32, I32, PointerType
 
 
 @tf.kernel
@@ -12,7 +13,7 @@ def reduction_kernel(x, out_sum, out_max, n):
     offsets = pid * 256 + tf.arange(0, 256)
     mask = offsets < n
     val = tf.load(x, offsets, mask)
-    
+
     # Neutral fill for out-of-bounds elements
     val_sum = tf.where(mask, val, 0.0)
     val_max = tf.where(mask, val, -1e9)

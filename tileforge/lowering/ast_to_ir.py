@@ -1,29 +1,31 @@
 """SSA Lowering pass: Converts TileForge AST nodes into typed SSA IR with multi-block CFG control flow."""
 
 from __future__ import annotations
+
 from typing import Dict, List, Optional, Set
+
 from tileforge.frontend.ast_nodes import (
-    KernelFunctionNode,
-    Statement,
     Assignment,
-    Return,
-    IfStatement,
-    ForRangeStatement,
-    Expr,
     BinaryExpr,
-    CompareExpr,
     Call,
+    CompareExpr,
+    Expr,
+    ForRangeStatement,
+    IfStatement,
+    KernelFunctionNode,
     Literal,
     Name,
+    Return,
+    Statement,
 )
 from tileforge.frontend.errors import LoweringError
-from tileforge.ir.types import Type, PointerType, TensorType, VOID, I32, F32, promote_types
-from tileforge.ir.value import Value
-from tileforge.ir.operation import Operation, OpType
 from tileforge.ir.block import Block
+from tileforge.ir.builder import IRBuilder
 from tileforge.ir.function import Function
 from tileforge.ir.module import Module
-from tileforge.ir.builder import IRBuilder
+from tileforge.ir.operation import OpType
+from tileforge.ir.types import F32, I32, VOID, TensorType, Type, promote_types
+from tileforge.ir.value import Value
 
 
 class ASTToLowering:
@@ -45,7 +47,7 @@ class ASTToLowering:
         ret_type = kernel.return_type or VOID
         func = Function(name=kernel.name, args=fn_args, return_type=ret_type, parent_module=self.module)
         self.module.add_function(func)
-        
+
         builder = IRBuilder(func.entry_block)
 
         # 3. Lower AST statements sequentially
@@ -202,7 +204,7 @@ class ASTToLowering:
         isolated_builder = IRBuilder()
         isolated_builder.block = Block(name="dummy_body")
         self._lower_statement_list(stmt.body, func, isolated_builder, dummy_body_env)
-        
+
         # Completely remove any dummy blocks added to func during pre-pass
         while len(func.blocks) > saved_block_count:
             b = func.blocks.pop()
@@ -258,7 +260,7 @@ class ASTToLowering:
         builder.set_insertion_point(body_final_block)
         c1 = builder.create_constant(1, I32)
         next_index = builder.create_add(index_arg, c1)
-        
+
         next_carried_vals: List[Value] = []
         for idx, var in enumerate(loop_carried_vars):
             b_val = body_env[var]
@@ -296,7 +298,7 @@ class ASTToLowering:
         elif isinstance(expr, BinaryExpr):
             lhs_val = self._lower_expr(expr.lhs, builder, symbol_env)
             rhs_val = self._lower_expr(expr.rhs, builder, symbol_env)
-            
+
             if expr.op == "+":
                 return builder.create_add(lhs_val, rhs_val)
             elif expr.op == "-":
@@ -315,7 +317,7 @@ class ASTToLowering:
         elif isinstance(expr, CompareExpr):
             lhs_val = self._lower_expr(expr.lhs, builder, symbol_env)
             rhs_val = self._lower_expr(expr.rhs, builder, symbol_env)
-            
+
             pred_map = {
                 "<": "lt",
                 "<=": "le",
@@ -346,15 +348,15 @@ class ASTToLowering:
         elif fname in {"tf.arange", "tf.range"}:
             start_arg = call.args[0]
             end_arg = call.args[1]
-            
+
             start_val = start_arg.value if isinstance(start_arg, Literal) and isinstance(start_arg.value, int) else 0
             end_val = end_arg.value if isinstance(end_arg, Literal) and isinstance(end_arg.value, int) else 256
-            
+
             if isinstance(end_arg, Name) and end_arg.id in symbol_env:
                 v = symbol_env[end_arg.id]
                 if v.defining_op and v.defining_op.op_type == OpType.CONSTANT:
                     end_val = int(v.defining_op.attributes.get("value", 256))
-                    
+
             if isinstance(start_arg, Name) and start_arg.id in symbol_env:
                 v = symbol_env[start_arg.id]
                 if v.defining_op and v.defining_op.op_type == OpType.CONSTANT:
@@ -365,20 +367,20 @@ class ASTToLowering:
         elif fname == "tf.load":
             ptr_val = self._lower_expr(call.args[0], builder, symbol_env)
             offs_val = self._lower_expr(call.args[1], builder, symbol_env)
-            
+
             mask_arg = call.keywords.get("mask") or (call.args[2] if len(call.args) > 2 else None)
             mask_val = self._lower_expr(mask_arg, builder, symbol_env) if mask_arg is not None else None
-            
+
             return builder.create_load(ptr_val, offs_val, mask_val)
 
         elif fname == "tf.store":
             ptr_val = self._lower_expr(call.args[0], builder, symbol_env)
             offs_val = self._lower_expr(call.args[1], builder, symbol_env)
             val_to_store = self._lower_expr(call.args[2], builder, symbol_env)
-            
+
             mask_arg = call.keywords.get("mask") or (call.args[3] if len(call.args) > 3 else None)
             mask_val = self._lower_expr(mask_arg, builder, symbol_env) if mask_arg is not None else None
-            
+
             builder.create_store(ptr_val, offs_val, val_to_store, mask_val)
             return None
 
@@ -418,7 +420,7 @@ class ASTToLowering:
                 shape_tuple = (shape_arg.value,) if isinstance(shape_arg.value, int) else tuple(shape_arg.value)
             else:
                 shape_tuple = (256, 256)
-            
+
             dtype_t = F32
             if len(call.args) > 1 and isinstance(call.args[1], Literal) and isinstance(call.args[1].value, str):
                 if call.args[1].value in {"i32", "int32"}:

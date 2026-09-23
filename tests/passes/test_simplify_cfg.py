@@ -1,6 +1,5 @@
-import pytest
-from tileforge.ir import Module, Function, Value, IRBuilder, IRPrinter, I32, I1, VOID
-from tileforge.passes import PassManager, SimplifyCFGPass, ConstantFoldPass
+from tileforge.ir import I1, VOID, Function, IRBuilder, IRPrinter, Module
+from tileforge.passes import PassManager, SimplifyCFGPass
 
 
 def test_simplify_cfg_constant_branch():

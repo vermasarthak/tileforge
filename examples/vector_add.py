@@ -1,9 +1,10 @@
 """Vector addition example in TileForge."""
 
 import numpy as np
+
 import tileforge as tf
 from tileforge.driver import Compiler
-from tileforge.ir.types import PointerType, F32, I32
+from tileforge.ir.types import F32, I32, PointerType
 
 
 @tf.kernel
@@ -21,7 +22,7 @@ def run_vector_add_demo():
     print("Compiling Vector Add Kernel...")
     compiler = Compiler(optimize=True, backend="metal")
     arg_types = [PointerType(F32), PointerType(F32), PointerType(F32), I32]
-    
+
     result = compiler.compile(add, arg_types)
 
     print("\n--- IR BEFORE OPTIMIZATION ---")

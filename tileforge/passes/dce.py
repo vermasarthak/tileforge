@@ -1,8 +1,8 @@
 """Dead Code Elimination (DCE) pass for TileForge IR."""
 
 from __future__ import annotations
+
 from tileforge.ir.module import Module
-from tileforge.ir.operation import Operation
 from tileforge.passes.manager import Pass
 
 

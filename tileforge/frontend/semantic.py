@@ -1,41 +1,38 @@
 """Semantic Analysis pass: Symbol resolution, type inference, shape checking, and control flow analysis."""
 
 from __future__ import annotations
-from typing import Dict, List, Optional
+
+from typing import List
+
 from tileforge.frontend.ast_nodes import (
-    KernelFunctionNode,
-    Argument,
-    Statement,
     Assignment,
-    Return,
-    IfStatement,
-    ForRangeStatement,
-    Expr,
     BinaryExpr,
-    CompareExpr,
     Call,
+    CompareExpr,
+    Expr,
+    ForRangeStatement,
+    IfStatement,
+    KernelFunctionNode,
     Literal,
     Name,
+    Return,
+    Statement,
 )
-from tileforge.frontend.symbols import SymbolTable, Symbol
 from tileforge.frontend.errors import (
     TypeCheckError,
     UndefinedSymbolError,
-    TileForgeError,
 )
+from tileforge.frontend.symbols import SymbolTable
 from tileforge.ir.types import (
-    Type,
-    PrimitiveType,
-    PointerType,
-    TensorType,
+    F32,
     I1,
     I32,
-    I64,
-    F32,
-    F64,
     VOID,
-    promote_types,
+    PointerType,
+    TensorType,
+    Type,
     compare_types,
+    promote_types,
 )
 
 
@@ -224,7 +221,7 @@ class SemanticAnalyzer:
                 )
             arg0 = call.args[0]
             arg1 = call.args[1]
-            
+
             start_val = None
             if isinstance(arg0, Literal) and isinstance(arg0.value, int):
                 start_val = arg0.value
@@ -232,7 +229,7 @@ class SemanticAnalyzer:
                 sym = self.symbol_table.lookup(arg0.id)
                 if hasattr(sym, "const_value") and isinstance(sym.const_value, int):
                     start_val = sym.const_value
-            
+
             end_val = None
             if isinstance(arg1, Literal) and isinstance(arg1.value, int):
                 end_val = arg1.value
@@ -313,7 +310,7 @@ class SemanticAnalyzer:
                 )
             ptr_t = self._analyze_expr(call.args[0])
             offs_t = self._analyze_expr(call.args[1])
-            val_t = self._analyze_expr(call.args[2])
+            self._analyze_expr(call.args[2])
 
             if not isinstance(ptr_t, PointerType):
                 raise TypeCheckError(
@@ -349,7 +346,7 @@ class SemanticAnalyzer:
                     line=line,
                     column=col,
                 )
-            cond_t = self._analyze_expr(call.args[0])
+            self._analyze_expr(call.args[0])
             true_t = self._analyze_expr(call.args[1])
             false_t = self._analyze_expr(call.args[2])
             return promote_types(true_t, false_t)
@@ -408,19 +405,19 @@ class SemanticAnalyzer:
         elif fname == "tf.zeros":
             if len(call.args) < 1:
                 raise TypeCheckError("tf.zeros requires shape argument", filename=self.filename, line=line, column=col)
-            
+
             # Shape tuple parsing
             shape_arg = call.args[0]
             if isinstance(shape_arg, Literal) and isinstance(shape_arg.value, (int, tuple, list)):
                 shape_val = (shape_arg.value,) if isinstance(shape_arg.value, int) else tuple(shape_arg.value)
             else:
                 shape_val = (256, 256)
-            
+
             dtype_val = F32
             if len(call.args) > 1 and isinstance(call.args[1], Literal) and isinstance(call.args[1].value, str):
                 if call.args[1].value in {"i32", "int32"}:
                     dtype_val = I32
-            
+
             return TensorType(shape_val, dtype_val)
 
         elif fname in {"tuple", "tf.tuple"}:

@@ -1,8 +1,9 @@
 import random
+
 import numpy as np
-import pytest
-from tileforge.ir import Module, Function, Value, IRBuilder, PointerType, F32, I32, VOID
-from tileforge.passes import PassManager, ConstantFoldPass, AlgebraicSimplifyPass, CSEPass, DeadCodeEliminationPass
+
+from tileforge.ir import F32, I32, VOID, Function, IRBuilder, Module, PointerType, Value
+from tileforge.passes import AlgebraicSimplifyPass, ConstantFoldPass, CSEPass, DeadCodeEliminationPass, PassManager
 from tileforge.runtime import CPUInterpreter
 
 
@@ -13,11 +14,11 @@ def generate_random_expr(builder: IRBuilder, vars_: list[Value], depth: int = 0)
         else:
             c_val = random.randint(1, 10)
             return builder.create_constant(float(c_val), F32)
-    
+
     op_type = random.choice(["add", "sub", "mul"])
     lhs = generate_random_expr(builder, vars_, depth + 1)
     rhs = generate_random_expr(builder, vars_, depth + 1)
-    
+
     if op_type == "add":
         return builder.create_add(lhs, rhs)
     elif op_type == "sub":
@@ -73,5 +74,5 @@ def test_fuzz_random_expression_trees():
 
         interpreter = CPUInterpreter()
         interpreter.execute(func, grid=(1,), args=[x_np, y_np, out_np, N])
-        
+
         assert not np.isnan(out_np).any()

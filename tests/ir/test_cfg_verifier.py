@@ -1,8 +1,7 @@
 import pytest
-from tileforge.ir import (
-    Module, Function, Value, IRBuilder, PointerType, F32, I32, I1, VOID, IRVerifier
-)
+
 from tileforge.frontend.errors import IRVerificationError
+from tileforge.ir import F32, I1, I32, VOID, Function, IRBuilder, IRVerifier, Module, Value
 
 
 def test_verifier_rejects_undominated_use():

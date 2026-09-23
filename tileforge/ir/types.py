@@ -1,6 +1,7 @@
 """TileForge type system for scalars, pointers, tensors, and void."""
 
 from __future__ import annotations
+
 from dataclasses import dataclass
 from typing import Tuple, Union
 
@@ -96,15 +97,29 @@ class PointerType(Type):
 
 
 @dataclass(frozen=True)
+class SymInt:
+    """Symbolic integer dimension for dynamic shapes in compiler IR."""
+    name: str
+
+    def __str__(self) -> str:
+        return self.name
+
+
+@dataclass(frozen=True)
 class TensorType(Type):
-    shape: Tuple[int, ...]
+    shape: Tuple[Union[int, SymInt], ...]
     element_type: PrimitiveType
 
     def __post_init__(self):
         if not isinstance(self.element_type, PrimitiveType):
             raise TypeCheckError(f"Tensor element type must be primitive, got {self.element_type}")
-        if not self.shape or any(dim <= 0 for dim in self.shape):
-            raise TypeCheckError(f"Tensor shape must consist of positive integers, got {self.shape}")
+        if not self.shape:
+            raise TypeCheckError("Tensor shape cannot be empty")
+        for dim in self.shape:
+            if isinstance(dim, int) and dim <= 0:
+                raise TypeCheckError(f"Tensor static shape dimension must be positive, got {dim}")
+            elif not isinstance(dim, (int, SymInt)):
+                raise TypeCheckError(f"Tensor shape dimension must be int or SymInt, got {type(dim)}")
 
     def __str__(self) -> str:
         dims = "x".join(str(d) for d in self.shape)
@@ -116,7 +131,7 @@ class TensorType(Type):
 
 def promote_types(lhs: Type, rhs: Type) -> Type:
     """Deterministically promote two types for binary operations.
-    
+
     Supports:
     - Scalar + Scalar (must match or promote correctly)
     - Tensor + Tensor (exact shape & promoted element type)
@@ -127,15 +142,15 @@ def promote_types(lhs: Type, rhs: Type) -> Type:
             raise TypeCheckError(f"Incompatible tensor shapes for binary operation: {lhs.shape} vs {rhs.shape}")
         elem_type = promote_scalar_types(lhs.element_type, rhs.element_type)
         return TensorType(lhs.shape, elem_type)
-    
+
     if isinstance(lhs, TensorType) and isinstance(rhs, PrimitiveType):
         elem_type = promote_scalar_types(lhs.element_type, rhs)
         return TensorType(lhs.shape, elem_type)
-    
+
     if isinstance(lhs, PrimitiveType) and isinstance(rhs, TensorType):
         elem_type = promote_scalar_types(lhs, rhs.element_type)
         return TensorType(rhs.shape, elem_type)
-    
+
     if lhs == rhs:
         return lhs
 
@@ -169,20 +184,20 @@ def promote_scalar_types(lhs: PrimitiveType, rhs: PrimitiveType) -> PrimitiveTyp
 
 def compare_types(lhs: Type, rhs: Type) -> Type:
     """Determine result type of comparison operation (<, <=, >, >=, ==, !=).
-    
+
     Returns i1 for scalars, tensor<shape x i1> for tensor operands.
     """
     if isinstance(lhs, TensorType) and isinstance(rhs, TensorType):
         if lhs.shape != rhs.shape:
             raise TypeCheckError(f"Incompatible tensor shapes for comparison: {lhs.shape} vs {rhs.shape}")
         return TensorType(lhs.shape, I1)
-    
+
     if isinstance(lhs, TensorType) and isinstance(rhs, PrimitiveType):
         return TensorType(lhs.shape, I1)
-    
+
     if isinstance(lhs, PrimitiveType) and isinstance(rhs, TensorType):
         return TensorType(rhs.shape, I1)
-    
+
     if isinstance(lhs, PrimitiveType) and isinstance(rhs, PrimitiveType):
         return I1
 

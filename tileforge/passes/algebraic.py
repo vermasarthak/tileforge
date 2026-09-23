@@ -1,7 +1,9 @@
 """Algebraic Simplification pass for TileForge IR."""
 
 from __future__ import annotations
-from typing import Optional, Any
+
+from typing import Any, Optional
+
 from tileforge.ir.module import Module
 from tileforge.ir.operation import Operation, OpType
 from tileforge.ir.value import Value

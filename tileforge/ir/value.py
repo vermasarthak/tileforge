@@ -1,11 +1,12 @@
 """Value representation for Static Single Assignment (SSA) IR."""
 
 from __future__ import annotations
-from typing import List, Optional, TYPE_CHECKING, Any
+
+from typing import TYPE_CHECKING, List, Optional
 
 if TYPE_CHECKING:
-    from tileforge.ir.types import Type
     from tileforge.ir.operation import Operation
+    from tileforge.ir.types import Type
 
 
 class Value:
@@ -29,7 +30,7 @@ class Value:
         uses_to_replace = list(self.uses)
         for use in uses_to_replace:
             use.user.operands[use.operand_index] = new_value
-            new_value.uses.append(Use(user=use.user, operand_index=use.operand_index, value=new_value))
+            new_value.add_use(op=use.user, operand_index=use.operand_index)
         self.uses.clear()
 
     def is_used(self) -> bool:

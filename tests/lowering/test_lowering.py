@@ -1,11 +1,10 @@
-import pytest
+import tileforge as tf
 from tileforge.frontend.parser import Parser
 from tileforge.frontend.semantic import SemanticAnalyzer
-from tileforge.lowering.ast_to_ir import ASTToLowering
-from tileforge.ir.types import PointerType, F32, I32
 from tileforge.ir.printer import IRPrinter
+from tileforge.ir.types import F32, I32, PointerType
 from tileforge.ir.verifier import IRVerifier
-import tileforge as tf
+from tileforge.lowering.ast_to_ir import ASTToLowering
 
 
 def test_lowering_vector_add():
@@ -21,7 +20,7 @@ def test_lowering_vector_add():
 
     parser = Parser()
     kernel_ast = parser.parse_kernel(add)
-    
+
     arg_types = [PointerType(F32), PointerType(F32), PointerType(F32), I32]
     analyzer = SemanticAnalyzer()
     analyzer.analyze(kernel_ast, arg_types)
@@ -60,7 +59,7 @@ def rebind(a, b):
 
     printer = IRPrinter()
     ir_text = printer.print_function(func)
-    
+
     # %0 = tf.add %a, %b
     # %1 = tf.constant 2
     # %2 = tf.mul %0, %1

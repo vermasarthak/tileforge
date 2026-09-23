@@ -1,5 +1,4 @@
-import pytest
-from tileforge.ir import Module, Function, Value, IRBuilder, I32, I1, VOID
+from tileforge.ir import I1, VOID, Function, IRBuilder, Module, Value
 from tileforge.ir.dominance import DominanceInfo
 
 

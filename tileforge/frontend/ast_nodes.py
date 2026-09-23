@@ -1,8 +1,10 @@
 """Custom AST node hierarchy for TileForge language representation."""
 
 from __future__ import annotations
+
 from dataclasses import dataclass, field
-from typing import List, Optional, Any, Dict
+from typing import Any, Dict, List, Optional
+
 from tileforge.ir.types import Type
 
 

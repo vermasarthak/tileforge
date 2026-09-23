@@ -1,8 +1,6 @@
 import numpy as np
-import pytest
-from tileforge.ir import (
-    Module, Function, Value, IRBuilder, PointerType, F32, I32, VOID
-)
+
+from tileforge.ir import F32, I32, VOID, Function, IRBuilder, Module, PointerType, Value
 from tileforge.runtime import CPUInterpreter
 
 

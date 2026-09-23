@@ -1,7 +1,7 @@
-import pytest
 import tileforge as tf
 from tileforge.driver import Compiler
-from tileforge.ir.types import PointerType, F32, I32
+from tileforge.ir.types import F32, I32, PointerType
+
 
 def test_vector_add_codegen_snapshot():
     @tf.kernel
@@ -82,6 +82,7 @@ def test_cfg_runtime_execution():
 
 def test_regression_no_whole_function_template_routing():
     import inspect
+
     from tileforge.backend.metal import codegen
     source = inspect.getsource(codegen)
     assert "generate_tiled_matmul_function" not in source
@@ -148,7 +149,7 @@ def test_post_dot_surrounding_ops_e2e():
 
     grid_m = (M + 15) // 16
     grid_n = (N + 15) // 16
-    result.launch(grid=(grid_n, grid_m), args=[A_np, B_np, C_np, M, N, K, scale, bias])
+    result.launch(grid=(grid_m, grid_n), args=[A_np, B_np, C_np, M, N, K, scale, bias])
 
     np.testing.assert_allclose(C_np, expected, rtol=1e-4, atol=1e-4)
 
@@ -181,5 +182,5 @@ def test_reordered_parameters_matmul_e2e():
     grid_m = (M + 15) // 16
     grid_n = (N + 15) // 16
 
-    result.launch(grid=(grid_n, grid_m), args=[M, N, K, C_np, A_np, B_np])
+    result.launch(grid=(grid_m, grid_n), args=[M, N, K, C_np, A_np, B_np])
     np.testing.assert_allclose(C_np, expected, rtol=1e-4, atol=1e-4)

@@ -1,8 +1,9 @@
 import numpy as np
 import pytest
+
 import tileforge as tf
 from tileforge.driver import Compiler
-from tileforge.ir.types import PointerType, F32, I32
+from tileforge.ir.types import F32, I32, PointerType
 
 
 @tf.kernel
@@ -79,6 +80,6 @@ def test_tiled_matmul_metal_gpu_e2e(M, N, K):
     grid_m = (M + 15) // 16
     grid_n = (N + 15) // 16
 
-    result.launch(grid=(grid_n, grid_m), args=[A_np, B_np, C_np, M, N, K])
+    result.launch(grid=(grid_m, grid_n), args=[A_np, B_np, C_np, M, N, K])
 
     np.testing.assert_allclose(C_np, expected, rtol=1e-4, atol=1e-4)

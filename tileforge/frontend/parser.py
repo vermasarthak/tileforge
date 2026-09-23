@@ -1,24 +1,25 @@
 """Python AST to TileForge AST Parser with strict syntax validation."""
 
 from __future__ import annotations
+
 import ast
 import inspect
-from typing import Callable, Any, List, Union
+from typing import Any, Callable, List, Union
 
 from tileforge.frontend.ast_nodes import (
-    KernelFunctionNode,
     Argument,
-    Statement,
     Assignment,
-    Return,
-    IfStatement,
-    ForRangeStatement,
-    Expr,
     BinaryExpr,
-    CompareExpr,
     Call,
+    CompareExpr,
+    Expr,
+    ForRangeStatement,
+    IfStatement,
+    KernelFunctionNode,
     Literal,
     Name,
+    Return,
+    Statement,
 )
 from tileforge.frontend.errors import TileForgeSyntaxError, UnsupportedSyntaxError
 from tileforge.language.decorators import KernelFunction
@@ -158,7 +159,7 @@ class Parser:
                     column=stmt.col_offset,
                 )
             var_name = stmt.target.id
-            
+
             # Check loop iterable call: tf.range(start, end) or range(start, end)
             if not isinstance(stmt.iter, ast.Call):
                 raise UnsupportedSyntaxError(
@@ -167,7 +168,7 @@ class Parser:
                     line=stmt.lineno,
                     column=stmt.col_offset,
                 )
-            
+
             call_node = stmt.iter
             func_name = ""
             if isinstance(call_node.func, ast.Attribute) and isinstance(call_node.func.value, ast.Name):

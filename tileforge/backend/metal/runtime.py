@@ -5,9 +5,11 @@ encoders, grid dispatch (1D & 2D threadgroups), and synchronous execution on App
 """
 
 from __future__ import annotations
+
 import ctypes
+from typing import Any, List, Optional, Tuple
+
 import numpy as np
-from typing import List, Dict, Tuple, Any, Optional
 
 # Load System Libraries
 libobjc = ctypes.cdll.LoadLibrary("/usr/lib/libobjc.A.dylib")

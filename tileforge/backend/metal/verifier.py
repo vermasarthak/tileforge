@@ -1,9 +1,10 @@
 """GPU Backend IR Verifier."""
 
 from __future__ import annotations
-from tileforge.backend.metal.ir import GPUModule, GPUFunction, GPUBlock, GPUOperation, GPUOpType, AddressSpace
+
+from tileforge.backend.metal.ir import GPUFunction, GPUModule, GPUOperation, GPUOpType
 from tileforge.frontend.errors import IRVerificationError
-from tileforge.ir.types import I1, I32, TensorType, PointerType
+from tileforge.ir.types import I1, PointerType
 
 
 class GPUIRVerifier:
@@ -51,6 +52,8 @@ class GPUIRVerifier:
             bk = op.attributes.get("BK", 16)
             if bm <= 0 or bn <= 0 or bk <= 0:
                 raise IRVerificationError(f"Tile dimensions must be positive, got BM={bm}, BN={bn}, BK={bk}")
+            if (bm % 8 != 0) or (bn % 8 != 0) or (bk % 8 != 0):
+                raise IRVerificationError(f"Tile dimensions must be multiples of 8 for simdgroup alignment, got BM={bm}, BN={bn}, BK={bk}")
             if (bm * bn) > 1024:
                 raise IRVerificationError(f"Threadgroup size {bm*bn} exceeds Metal hardware limit 1024")
 

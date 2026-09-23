@@ -1,14 +1,20 @@
 """IRBuilder for constructing TileForge SSA IR operations and control flow."""
 
 from __future__ import annotations
-from typing import List, Optional, Any, Tuple
+
+from typing import Any, List, Optional, Tuple, Union
+
+from tileforge.ir.block import Block
+from tileforge.ir.operation import Operation, OpType
 from tileforge.ir.types import (
-    Type, PrimitiveType, TensorType, PointerType, I1, I32, F32, VOID,
-    promote_types, compare_types
+    I32,
+    PointerType,
+    TensorType,
+    Type,
+    compare_types,
+    promote_types,
 )
 from tileforge.ir.value import Value
-from tileforge.ir.operation import Operation, OpType
-from tileforge.ir.block import Block
 
 
 class IRBuilder:
@@ -114,17 +120,17 @@ class IRBuilder:
         ptr_type = pointer.type
         if not isinstance(ptr_type, PointerType):
             raise TypeError(f"Load source must be pointer type, got {ptr_type}")
-        
+
         elem_type = ptr_type.element_type
-        
+
         offset_list = list(offsets) if isinstance(offsets, (tuple, list)) else [offsets]
         tensor_shapes = [v.type.shape for v in offset_list if isinstance(v.type, TensorType)]
-        
+
         if tensor_shapes:
             res_type = TensorType(tensor_shapes[0], elem_type)
         else:
             res_type = elem_type
-            
+
         res = Value(self.new_value_name(), res_type)
         operands = [pointer] + offset_list
         if mask is not None:
@@ -167,11 +173,11 @@ class IRBuilder:
     ) -> None:
         t_args = then_args if then_args is not None else []
         e_args = else_args if else_args is not None else []
-        
+
         # Track split argument count in attributes
         operands = [condition] + t_args + e_args
         attrs = {"then_arg_count": len(t_args), "else_arg_count": len(e_args)}
-        
+
         op = Operation(
             OpType.COND_BR,
             operands=operands,
@@ -205,7 +211,7 @@ class IRBuilder:
     def create_dot(self, lhs: Value, rhs: Value) -> Value:
         if not isinstance(lhs.type, TensorType) or not isinstance(rhs.type, TensorType):
             raise TypeError(f"dot operands must be TensorType, got {lhs.type} and {rhs.type}")
-        
+
         if len(lhs.type.shape) == 1 and len(rhs.type.shape) == 1:
             res_type = TensorType((lhs.type.shape[0], rhs.type.shape[0]), lhs.type.element_type)
         elif len(lhs.type.shape) == 2 and len(rhs.type.shape) == 2:

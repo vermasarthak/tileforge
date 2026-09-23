@@ -1,7 +1,7 @@
 """Decorators for marking TileForge kernel functions."""
 
 import inspect
-from typing import Callable, Any
+from typing import Any, Callable
 
 
 class KernelFunction:

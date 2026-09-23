@@ -1,11 +1,13 @@
 """Dominance Analysis and Control Flow Graph (CFG) analysis for TileForge IR functions."""
 
 from __future__ import annotations
-from typing import Dict, List, Set, Optional
-from tileforge.ir.function import Function
+
+from typing import Dict, List, Optional, Set
+
 from tileforge.ir.block import Block
-from tileforge.ir.value import Value
+from tileforge.ir.function import Function
 from tileforge.ir.operation import Operation
+from tileforge.ir.value import Value
 
 
 class DominanceInfo:

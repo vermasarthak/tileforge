@@ -9,9 +9,11 @@ Represents GPU execution concepts explicitly:
 """
 
 from __future__ import annotations
-from enum import Enum, auto
-from typing import Dict, List, Optional, Any, Tuple, Union
-from tileforge.ir.types import Type, PrimitiveType, PointerType, TensorType, VOID, I32, I1, F32, I64
+
+from enum import Enum
+from typing import Any, Dict, List, Optional, Tuple
+
+from tileforge.ir.types import Type
 
 
 class AddressSpace(Enum):

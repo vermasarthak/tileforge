@@ -1,9 +1,7 @@
 import pytest
-from tileforge.ir.types import (
-    I1, I32, F32, PointerType, TensorType, VOID,
-    promote_types, compare_types
-)
+
 from tileforge.frontend.errors import TypeCheckError
+from tileforge.ir.types import F32, I1, I32, PointerType, TensorType, compare_types, promote_types
 
 
 def test_primitive_types():
@@ -29,7 +27,7 @@ def test_tensor_type():
 def test_promote_types():
     assert promote_types(I32, I32) == I32
     assert promote_types(I32, F32) == F32
-    
+
     t256_f32 = TensorType((256,), F32)
     assert promote_types(t256_f32, F32) == t256_f32
     assert promote_types(t256_f32, t256_f32) == t256_f32

@@ -1,9 +1,18 @@
 import pytest
-from tileforge.ir import (
-    Module, Function, Value, PointerType, TensorType, F32, I32, I1, VOID,
-    IRBuilder, IRPrinter, IRVerifier
-)
+
 from tileforge.frontend.errors import IRVerificationError
+from tileforge.ir import (
+    F32,
+    I32,
+    VOID,
+    Function,
+    IRBuilder,
+    IRPrinter,
+    IRVerifier,
+    Module,
+    PointerType,
+    Value,
+)
 
 
 def test_ir_building_printing_verifying():
