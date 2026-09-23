@@ -2,14 +2,14 @@ name: CI
 
 on:
   push:
-    branches: [ main ]
+    branches: [ main, audit/portfolio-hardening-v1 ]
   pull_request:
     branches: [ main ]
 
 jobs:
-  test:
-    runs-on: macos-latest
-
+  linux-test:
+    name: Linux CPU & Compiler Tests
+    runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
 
@@ -21,12 +21,37 @@ jobs:
       - name: Install dependencies
         run: |
           python -m pip install --upgrade pip
+          pip install -e .
           pip install pytest numpy ruff
 
       - name: Lint with ruff
-        run: |
-          ruff check .
+        run: ruff check .
 
-      - name: Run Pytest Test Suite
+      - name: Run Non-Metal / CPU Pytest Suite
         run: |
-          pytest -v
+          pytest -v -k "not metal and not gpu"
+
+  macos-metal-test:
+    name: macOS Metal GPU & E2E Tests
+    runs-on: macos-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+
+      - name: Install dependencies
+        run: |
+          python -m pip install --upgrade pip
+          pip install -e .
+          pip install pytest numpy ruff
+
+      - name: Run Full Pytest Suite (including Metal)
+        run: pytest -v
+
+      - name: Run Reproducible Benchmark Suite
+        run: |
+          python benchmarks/run_benchmarks.py
+          python benchmarks/run_matmul_benchmark.py
